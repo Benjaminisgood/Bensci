@@ -36,6 +36,7 @@ def select_relevant_blocks(
     for idx, block in enumerate(blocks):
         text = str(block.get("content", ""))
         lowered = text.lower()
+        metadata = block.get("metadata") or {}
         score = 0
         keywords = [kw.lower() for kw in normalize_keywords(block.get("keywords"))]
         if keywords:
@@ -44,6 +45,19 @@ def select_relevant_blocks(
             score += 4
         score += sum(1 for kw in key_terms_lower if kw in lowered)
         if block.get("type") == "table":
+            score += 2
+        if block.get("type") == "figure":
+            score += 1
+        if isinstance(metadata, Mapping):
+            role = str(metadata.get("role") or "").lower()
+            heading_level = metadata.get("heading_level")
+            if role in {"heading", "title", "section_title"}:
+                score += 1
+            if isinstance(heading_level, int) and heading_level <= 3:
+                score += 1
+        if any(ch.isdigit() for ch in text):
+            score += 1
+        if any(unit in text for unit in ("%", "±", "°", "K", "bar", "Pa", "MPa", "mA", "V")):
             score += 1
         if score:
             scored.append((score, idx, dict(block)))

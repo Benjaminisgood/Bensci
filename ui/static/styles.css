@@ -105,6 +105,33 @@ h1 {
 
 .config-wrapper {
   display: grid;
+  gap: 20px;
+}
+
+.config-group {
+  display: grid;
+  gap: 14px;
+}
+
+.config-group-head h3 {
+  font-family: "Space Grotesk", sans-serif;
+  margin: 0 0 4px;
+}
+
+.config-group-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.config-basics {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr;
+}
+
+.config-grid {
+  display: grid;
   gap: 18px;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
@@ -345,6 +372,36 @@ button.run-btn {
   color: var(--muted);
 }
 
+.section-block {
+  display: grid;
+  gap: 12px;
+}
+
+.section-subhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-subhead h4 {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(222, 213, 199, 0.9);
+  margin: 16px 0;
+}
+
 label {
   font-size: 12px;
   color: var(--muted);
@@ -365,6 +422,11 @@ textarea {
   font-family: "Space Grotesk", sans-serif;
   font-size: 14px;
   background: #fffdf9;
+}
+
+input[readonly] {
+  background: #f6f1e8;
+  color: var(--muted);
 }
 
 textarea {
@@ -459,6 +521,20 @@ textarea {
   margin: 8px 0 0;
 }
 
+details.advanced {
+  margin-top: 12px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(222, 213, 199, 0.9);
+}
+
+details.advanced summary {
+  cursor: pointer;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -486,7 +562,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .config-wrapper {
+  .config-grid {
     grid-template-columns: 1fr;
   }
 }

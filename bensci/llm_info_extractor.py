@@ -7,7 +7,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from dotenv import load_dotenv
 
@@ -108,6 +108,35 @@ DEFAULT_USER_PROMPT_TEMPLATE: str = getattr(
         "候选片段 (按重要性排序)：\n{blocks}\n"
     ),
 )
+
+AUTO_SCHEMA_SYSTEM_PROMPT: str = getattr(
+    project_config,
+    "LLM_AUTO_SCHEMA_SYSTEM_PROMPT",
+    None,
+) or (
+    "你是一名严谨的学术信息抽取助手，擅长把论文内容结构化为可对比的表格。"
+    "请严格根据给定的字段模板(output_template)与任务要求(task)抽取信息。"
+    "输出必须是合法 JSON，字段名必须与模板一致。"
+    "任何缺失信息请填写“未提及”，切勿编造。"
+    "如果论文与任务无关，输出空数组 []。"
+)
+
+AUTO_SCHEMA_USER_PROMPT_TEMPLATE: str = getattr(
+    project_config,
+    "LLM_AUTO_SCHEMA_USER_PROMPT_TEMPLATE",
+    None,
+) or (
+    "请阅读以下文献元数据与节选片段，并按字段模板输出结构化结果。\n"
+    "字段模板如下：\n{output_template}\n\n"
+    "输出要求：\n"
+    "- 输出必须是 JSON 数组，每个元素对应一条记录；\n"
+    "- 字段名必须与模板一致；缺失填“未提及”；\n"
+    "- 关键结论/数据必须给 evidence_snippet（尽量原句）与 source_blocks（块编号列表）；\n"
+    "- 不要编造或推测。\n\n"
+    "任务要求：\n{task}\n\n"
+    "元数据：\n{metadata}\n\n"
+    "候选片段（按重要性排序）：\n{blocks}\n"
+)
 DEFAULT_TASK_PROMPT: str = getattr(
     project_config,
     "LLM_EXTRACTION_TASK_PROMPT",
@@ -167,6 +196,44 @@ DEFAULT_API_KEY_PREFIX_OVERRIDE: Optional[str] = getattr(
 )
 DEFAULT_TIMEOUT: int = int(
     getattr(project_config, "LLM_EXTRACTION_TIMEOUT", 120)
+)
+
+_SCHEMA_PROMPTS = _PROMPTS.get("schema_discovery", {})
+DEFAULT_SCHEMA_SYSTEM_PROMPT: str = getattr(
+    project_config,
+    "LLM_SCHEMA_DISCOVERY_SYSTEM_PROMPT",
+    None,
+) or _SCHEMA_PROMPTS.get(
+    "system_prompt",
+    (
+        "你是一名严谨的“论文制表 Schema 设计助手”。你的任务是在不知道领域先验的情况下，"
+        "仅根据多篇论文的元数据与片段，归纳出它们反复出现、最能代表该研究体系的关键信息维度，"
+        "并把这些维度设计成表格列（字段）。"
+        "字段命名必须是 snake_case（英文小写+下划线），避免过长，且尽量稳定可复用。"
+        "请优先选择跨多篇论文都可能出现的字段，而不是只在个别论文里出现的细枝末节。"
+        "输出必须是严格 JSON，且不要输出任何多余解释。"
+    ),
+)
+DEFAULT_SCHEMA_USER_PROMPT_TEMPLATE: str = getattr(
+    project_config,
+    "LLM_SCHEMA_DISCOVERY_USER_PROMPT_TEMPLATE",
+    None,
+) or _SCHEMA_PROMPTS.get(
+    "user_prompt_template",
+    (
+        "你将看到来自同一研究主题/体系的多篇论文片段。请完成两件事：\n"
+        "1) 设计一个通用表头 schema：输出 output_template（JSON 对象），键是字段名(field)，值是该字段要填什么(中文说明)。\n"
+        "   - 必须包含：article_title, doi\n"
+        "   - 字段数量建议 10-18 个（不要超过 {max_fields} 个）\n"
+        "   - 字段需覆盖：研究对象/体系、方法、关键条件、关键结果/指标、机理/解释、对比/结论、局限/未解问题等（按领域自动调整）\n"
+        "2) 输出一段 task（自然语言），用于后续抽取时指导模型按该 schema 填充，并强调“未提及则写未提及、不要编造、给证据片段与块编号”。\n\n"
+        "输出 JSON 结构必须为：\n"
+        "{\n"
+        "  \"task\": \"...\",\n"
+        "  \"output_template\": {\"field\": \"desc\", ...}\n"
+        "}\n\n"
+        "论文样本：\n{samples}\n"
+    ),
 )
 
 
@@ -438,6 +505,10 @@ class LLMExtractionConfig:
     api_key_header_override: Optional[str] = DEFAULT_API_KEY_HEADER_OVERRIDE
     api_key_prefix_override: Optional[str] = DEFAULT_API_KEY_PREFIX_OVERRIDE
     timeout: int = DEFAULT_TIMEOUT
+    auto_schema: bool = False
+    schema_sample_size: int = 6
+    schema_max_fields: int = 18
+    schema_output_path: Optional[Path] = None
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "LLMExtractionConfig":
@@ -479,6 +550,14 @@ class LLMExtractionConfig:
             args.api_key_prefix if args.api_key_prefix is not None else DEFAULT_API_KEY_PREFIX_OVERRIDE
         )
         timeout = args.timeout if args.timeout is not None else DEFAULT_TIMEOUT
+        auto_schema = bool(getattr(args, "auto_schema", False))
+        schema_sample_size = int(getattr(args, "schema_sample_size", 6) or 6)
+        schema_max_fields = int(getattr(args, "schema_max_fields", 18) or 18)
+        schema_output_path = (
+            Path(args.schema_output).resolve()
+            if getattr(args, "schema_output", None)
+            else None
+        )
         return cls(
             input_path=input_path,
             output_path=output_path,
@@ -496,6 +575,10 @@ class LLMExtractionConfig:
             api_key_header_override=api_key_header,
             api_key_prefix_override=api_key_prefix,
             timeout=timeout,
+            auto_schema=auto_schema,
+            schema_sample_size=schema_sample_size,
+            schema_max_fields=schema_max_fields,
+            schema_output_path=schema_output_path,
         )
 
     def render_template_doc(self) -> str:
@@ -544,6 +627,12 @@ class LLMExtractionPipeline:
             LOGGER.warning("未找到任何输入文件：%s", self.config.input_path)
             return []
 
+        if self.config.auto_schema:
+            try:
+                self._apply_auto_schema(input_paths)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception("自动生成表头失败，将回退到手动/默认模板：%s", exc)
+
         results: List[ExtractionRow] = []
         template_doc = self.config.render_template_doc()
 
@@ -579,6 +668,179 @@ class LLMExtractionPipeline:
             LOGGER.warning("未生成任何抽取结果，未写入文件。")
 
         return results
+
+    def _apply_auto_schema(self, input_paths: Sequence[Path]) -> None:
+        sample_paths = list(input_paths[: max(1, self.config.schema_sample_size)])
+        samples = []
+        for path in sample_paths:
+            try:
+                dataset = self._load_input_dataset(path)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.debug("Schema 样本读取失败，跳过：%s | %s", path.name, exc)
+                continue
+            metadata = dataset.get("metadata", {}) or {}
+            blocks = dataset.get("blocks", []) or []
+            selected = self._select_blocks_for_schema(blocks, limit=10)
+            samples.append(
+                {
+                    "source_file": path.name,
+                    "metadata": render_semistructured_metadata(metadata),
+                    "blocks": render_semistructured_blocks(selected, snippet_length=260),
+                }
+            )
+        if not samples:
+            raise RuntimeError("没有可用于 schema 生成的样本输入。")
+
+        prompt = DEFAULT_SCHEMA_USER_PROMPT_TEMPLATE.format(
+            samples=json.dumps(samples, ensure_ascii=False, indent=2),
+            max_fields=max(8, self.config.schema_max_fields),
+        )
+        schema_client = LLMClient(
+            settings=self.client.settings,
+            model=self.client.model,
+            system_prompt=DEFAULT_SCHEMA_SYSTEM_PROMPT,
+            temperature=min(self.client.temperature, 0.2),
+            timeout=self.client.timeout,
+        )
+        completion = schema_client.generate(prompt)
+        payload = self._coerce_json(completion)
+        task, template = self._parse_schema_payload(payload)
+
+        self.config.output_template = template
+        if task and not self.config.task_prompt:
+            self.config.task_prompt = task
+        if self.config.system_prompt == DEFAULT_SYSTEM_PROMPT:
+            self.config.system_prompt = AUTO_SCHEMA_SYSTEM_PROMPT
+            self.client.system_prompt = AUTO_SCHEMA_SYSTEM_PROMPT
+        if self.config.user_prompt_template == DEFAULT_USER_PROMPT_TEMPLATE:
+            self.config.user_prompt_template = AUTO_SCHEMA_USER_PROMPT_TEMPLATE
+
+        output_path = self.config.schema_output_path
+        if output_path is None:
+            output_path = self.config.output_path.with_suffix(".schema.json")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "task": self.config.task_prompt,
+                    "output_template": template,
+                    "sample_files": [p.name for p in sample_paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        LOGGER.info("已自动生成表头 schema：%s", output_path)
+
+    @staticmethod
+    def _select_blocks_for_schema(
+        blocks: Sequence[Dict[str, Any]],
+        *,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        if not blocks:
+            return []
+
+        scored: List[Tuple[int, int, Dict[str, Any]]] = []
+        fallback: List[Tuple[int, Dict[str, Any]]] = []
+        for idx, block in enumerate(blocks):
+            block_dict = dict(block)
+            text = str(block_dict.get("content", "") or "")
+            lowered = text.lower()
+            meta = block_dict.get("metadata") or {}
+            score = 0
+            block_type = str(block_dict.get("type") or "")
+            if block_type == "table":
+                score += 5
+            elif block_type == "figure":
+                score += 3
+            if isinstance(meta, dict):
+                role = str(meta.get("role") or "").lower()
+                heading_level = meta.get("heading_level")
+                if role in {"heading", "title", "section_title"}:
+                    score += 2
+                if isinstance(heading_level, int) and heading_level <= 3:
+                    score += 2
+            if any(token in lowered for token in ("abstract", "introduction", "methods", "experimental", "results", "discussion", "conclusion")):
+                score += 1
+            if any(ch.isdigit() for ch in text):
+                score += 1
+            if any(unit in text for unit in ("%", "±", "°", "K", "bar", "Pa", "MPa", "mA", "V")):
+                score += 1
+            if score:
+                scored.append((score, idx, block_dict))
+            else:
+                fallback.append((idx, block_dict))
+
+        ranked = [b for _, _, b in sorted(scored, key=lambda item: (-item[0], item[1]))]
+        if len(ranked) < limit:
+            need = limit - len(ranked)
+            ranked.extend(b for _, b in sorted(fallback, key=lambda item: item[0])[:need])
+        return ranked[:limit]
+
+    def _parse_schema_payload(self, payload: Any) -> Tuple[str, "OrderedDict[str, str]"]:
+        task = ""
+        template_raw: Any = None
+
+        if isinstance(payload, dict):
+            if "output_template" in payload:
+                template_raw = payload.get("output_template")
+                task = str(payload.get("task") or "").strip()
+            else:
+                template_raw = payload
+        if template_raw is None:
+            raise ValueError("Schema 生成输出中未找到 output_template。")
+
+        template = self._coerce_template_mapping(template_raw)
+        template = self._ensure_required_schema_fields(template)
+        max_fields = max(4, int(self.config.schema_max_fields))
+        if len(template) > max_fields:
+            template = OrderedDict(list(template.items())[:max_fields])
+        return task, template
+
+    @staticmethod
+    def _coerce_template_mapping(raw: Any) -> "OrderedDict[str, str]":
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if raw:
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Schema output_template 不是合法 JSON：{exc}") from exc
+
+        if isinstance(raw, dict):
+            items = [(str(k).strip(), str(v).strip()) for k, v in raw.items() if str(k).strip()]
+            return OrderedDict(items)
+
+        if isinstance(raw, list):
+            items: List[tuple[str, str]] = []
+            for entry in raw:
+                if isinstance(entry, dict) and "field" in entry and "desc" in entry:
+                    items.append((str(entry["field"]).strip(), str(entry["desc"]).strip()))
+                elif isinstance(entry, (list, tuple)) and len(entry) == 2:
+                    items.append((str(entry[0]).strip(), str(entry[1]).strip()))
+            return OrderedDict((k, v) for k, v in items if k)
+
+        raise ValueError("Schema output_template 需为对象或数组。")
+
+    @staticmethod
+    def _ensure_required_schema_fields(template: "OrderedDict[str, str]") -> "OrderedDict[str, str]":
+        required = OrderedDict(
+            [
+                ("article_title", "文献标题"),
+                ("doi", "文献 DOI"),
+            ]
+        )
+        merged: "OrderedDict[str, str]" = OrderedDict()
+        for key, desc in required.items():
+            merged[key] = desc
+        for key, desc in template.items():
+            if key in merged:
+                continue
+            merged[key] = desc
+        return merged
 
     def _build_user_prompt(
         self,
@@ -815,6 +1077,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--output-template",
         default=None,
         help="JSON 输出模板（对象或数组）",
+    )
+    parser.add_argument(
+        "--auto-schema",
+        action="store_true",
+        help="在未提供任务/模板时，先自动从多篇论文样本归纳表头 schema，再按 schema 抽取",
+    )
+    parser.add_argument(
+        "--schema-sample-size",
+        type=int,
+        default=6,
+        help="自动生成 schema 时抽样的论文数量",
+    )
+    parser.add_argument(
+        "--schema-max-fields",
+        type=int,
+        default=18,
+        help="自动生成 schema 的最大字段数（包含 article_title/doi）",
+    )
+    parser.add_argument(
+        "--schema-output",
+        default=None,
+        help="自动生成的 schema 输出路径（默认写到 output.csv 同目录，扩展名 .schema.json）",
     )
     parser.add_argument(
         "--model",

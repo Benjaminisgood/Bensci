@@ -156,18 +156,25 @@ const logRefreshBtn = document.getElementById("refreshLog");
 const logStatusEl = document.getElementById("pipelineStatus");
 const queueEl = document.getElementById("pipelineQueue");
 const configSections = document.querySelectorAll(".config-section");
-const pathMetadataCsvEl = document.getElementById("pathMetadataCsv");
-const pathFilteredCsvEl = document.getElementById("pathFilteredCsv");
-const pathAssets2El = document.getElementById("pathAssets2");
-const pathXmlSourceEl = document.getElementById("pathXmlSource");
-const pathBlocksOutputEl = document.getElementById("pathBlocksOutput");
-const pathLlmOutputEl = document.getElementById("pathLlmOutput");
+const metadataOutputEl = document.getElementById("metadataOutput");
+const filterInputEl = document.getElementById("filterInput");
+const filterOutputEl = document.getElementById("filterOutput");
 
 const stopOnErrorEl = document.getElementById("stopOnError");
 const runPipelineBtn = document.getElementById("runPipeline");
 
 const envListEl = document.getElementById("envList");
+const envEmptyEl = document.getElementById("envEmpty");
 const overrideJsonEl = document.getElementById("overrideJson");
+const exportConfigBtn = document.getElementById("exportConfig");
+const saveLlmQuickBtn = document.getElementById("saveLlmQuick");
+
+const llmQuickProviderEl = document.getElementById("llmQuickProvider");
+const llmQuickModelEl = document.getElementById("llmQuickModel");
+const llmQuickKeyEl = document.getElementById("llmQuickKey");
+const llmQuickEnvEl = document.getElementById("llmQuickEnv");
+const llmQuickBaseUrlEl = document.getElementById("llmQuickBaseUrl");
+const llmQuickChatPathEl = document.getElementById("llmQuickChatPath");
 
 const metadataQueryEl = document.getElementById("metadataQuery");
 const metadataMaxEl = document.getElementById("metadataMax");
@@ -202,6 +209,9 @@ const llmOutputEl = document.getElementById("llmOutput");
 const llmPresetEl = document.getElementById("llmPreset");
 const llmTaskEl = document.getElementById("llmTask");
 const llmOutputTemplateEl = document.getElementById("llmOutputTemplate");
+const llmAutoSchemaEl = document.getElementById("llmAutoSchema");
+const llmSchemaSampleSizeEl = document.getElementById("llmSchemaSampleSize");
+const llmSchemaMaxFieldsEl = document.getElementById("llmSchemaMaxFields");
 const llmProviderEl = document.getElementById("llmProvider");
 const llmModelEl = document.getElementById("llmModel");
 const llmBaseUrlEl = document.getElementById("llmBaseUrl");
@@ -214,6 +224,10 @@ const llmTemperatureEl = document.getElementById("llmTemperature");
 const llmTimeoutEl = document.getElementById("llmTimeout");
 
 let cachedConfig = {};
+let cachedEnv = {};
+let cachedPaths = {};
+let cachedStageDefaults = {};
+let llmProviderPresets = {};
 
 function appendLog(text) {
   const timestamp = new Date().toLocaleTimeString();
@@ -332,6 +346,12 @@ function addStep(step) {
   renderQueue();
 }
 
+function updateEnvEmptyState() {
+  if (!envEmptyEl || !envListEl) return;
+  const hasRows = envListEl.querySelector(".env-row");
+  envEmptyEl.style.display = hasRows ? "none" : "block";
+}
+
 function addEnvRow(key = "", value = "") {
   const row = document.createElement("div");
   row.className = "env-row";
@@ -352,12 +372,14 @@ function addEnvRow(key = "", value = "") {
       removedEnvKeys.add(currentKey);
     }
     row.remove();
+    updateEnvEmptyState();
   });
 
   row.appendChild(keyInput);
   row.appendChild(valueInput);
   row.appendChild(removeBtn);
   envListEl.appendChild(row);
+  updateEnvEmptyState();
 }
 
 function collectEnvUpdates() {
@@ -393,6 +415,17 @@ function populateProviders(selectEl, providers, extraOption) {
   });
 }
 
+function ensureOption(selectEl, value) {
+  if (!selectEl || !value) return;
+  const exists = Array.from(selectEl.options).some((opt) => opt.value === value);
+  if (!exists) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    selectEl.appendChild(opt);
+  }
+}
+
 function setMultiSelect(selectEl, values) {
   const normalized = new Set((values || []).map((v) => v.toString()));
   Array.from(selectEl.options).forEach((opt) => {
@@ -408,6 +441,28 @@ function populatePresetSelect(selectEl, presets) {
     opt.textContent = preset.name;
     selectEl.appendChild(opt);
   });
+}
+
+function applyLlmQuickPreset(provider) {
+  if (!llmQuickEnvEl || !llmQuickBaseUrlEl || !llmQuickChatPathEl) return null;
+  const preset = llmProviderPresets[provider];
+  if (!preset) {
+    llmQuickEnvEl.value = "";
+    llmQuickBaseUrlEl.value = "";
+    llmQuickChatPathEl.value = "";
+    if (llmQuickKeyEl) {
+      llmQuickKeyEl.value = "";
+    }
+    return null;
+  }
+  llmQuickEnvEl.value = preset.api_key_env || "";
+  llmQuickBaseUrlEl.value = preset.base_url || "";
+  llmQuickChatPathEl.value = preset.chat_path || "";
+  if (llmQuickKeyEl) {
+    const envKey = preset.api_key_env;
+    llmQuickKeyEl.value = envKey && cachedEnv[envKey] ? cachedEnv[envKey] : "";
+  }
+  return preset;
 }
 
 function applyOcrPreset(presetId) {
@@ -462,7 +517,7 @@ function updateConfigVisibility() {
   });
 }
 
-function readOverrideJson() {
+function parseOverrideJson() {
   const raw = overrideJsonEl.value.trim();
   if (!raw) return {};
   try {
@@ -472,32 +527,213 @@ function readOverrideJson() {
     }
   } catch (err) {
     appendLog("Override JSON 无法解析，请先修正格式。");
+    return null;
   }
-  return {};
+  appendLog("Override JSON 必须是一个对象。");
+  return null;
 }
 
 function writeOverrideJson(data) {
   overrideJsonEl.value = JSON.stringify(data, null, 2);
 }
 
+function normalizeStageDefaults(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const normalized = {};
+  Object.entries(raw).forEach(([stage, config]) => {
+    if (config && typeof config === "object" && !Array.isArray(config)) {
+      normalized[stage] = { ...config };
+    }
+  });
+  return normalized;
+}
+
+function collectStagePathConfig(stage) {
+  const stageFields = {
+    metadata: { output_csv: metadataOutputEl },
+    filter: { input_csv: filterInputEl, output_csv: filterOutputEl },
+    download: { input_csv: downloadCsvEl, output_dir: downloadOutputEl },
+    convert: { input_path: convertInputEl, output_dir: convertOutputEl },
+    llm: { input_path: llmInputEl, output_path: llmOutputEl },
+  };
+  const fields = stageFields[stage];
+  if (!fields) return null;
+  const payload = {};
+  Object.entries(fields).forEach(([key, el]) => {
+    if (!el) return;
+    const value = el.value.trim();
+    if (value) {
+      payload[key] = value;
+    }
+  });
+  return payload;
+}
+
+async function saveStagePaths(stage, button) {
+  const overrides = parseOverrideJson();
+  if (overrides === null) {
+    return;
+  }
+  const stageDefaults = normalizeStageDefaults(overrides.STAGE_CONFIGS);
+  const pathConfig = collectStagePathConfig(stage);
+  if (pathConfig && Object.keys(pathConfig).length > 0) {
+    stageDefaults[stage] = pathConfig;
+  } else {
+    delete stageDefaults[stage];
+  }
+
+  if (Object.keys(stageDefaults).length === 0) {
+    delete overrides.STAGE_CONFIGS;
+  } else {
+    overrides.STAGE_CONFIGS = stageDefaults;
+  }
+
+  if (button) button.disabled = true;
+  try {
+    await apiPost("/api/config", { overrides });
+    writeOverrideJson(overrides);
+    cachedStageDefaults = stageDefaults;
+    appendLog(`已保存 ${stepLabels[stage] || stage} 的路径配置。`);
+  } catch (err) {
+    appendLog(`路径保存失败: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function buildEnvSnapshot() {
+  const snapshot = { ...cachedEnv };
+  const updates = collectEnvUpdates();
+  Object.entries(updates).forEach(([key, value]) => {
+    if (value === null || value === "") {
+      delete snapshot[key];
+    } else {
+      snapshot[key] = value;
+    }
+  });
+  if (llmQuickEnvEl && llmQuickKeyEl) {
+    const envKey = llmQuickEnvEl.value.trim();
+    const envValue = llmQuickKeyEl.value.trim();
+    if (envKey && envValue) {
+      snapshot[envKey] = envValue;
+    }
+  }
+  return snapshot;
+}
+
+function collectUiSnapshot() {
+  return {
+    llm_quick: {
+      provider: llmQuickProviderEl ? llmQuickProviderEl.value : "",
+      model: llmQuickModelEl ? llmQuickModelEl.value.trim() : "",
+      api_key_env: llmQuickEnvEl ? llmQuickEnvEl.value.trim() : "",
+      base_url: llmQuickBaseUrlEl ? llmQuickBaseUrlEl.value.trim() : "",
+      chat_path: llmQuickChatPathEl ? llmQuickChatPathEl.value.trim() : "",
+    },
+    paths: {
+      metadata_output_csv: metadataOutputEl.value.trim(),
+      filter_input_csv: filterInputEl.value.trim(),
+      filter_output_csv: filterOutputEl.value.trim(),
+      download_input_csv: downloadCsvEl.value.trim(),
+      download_output_dir: downloadOutputEl.value.trim(),
+      convert_input_path: convertInputEl.value.trim(),
+      convert_output_dir: convertOutputEl.value.trim(),
+      llm_input_path: llmInputEl.value.trim(),
+      llm_output_path: llmOutputEl.value.trim(),
+    },
+    metadata: {
+      query: metadataQueryEl.value.trim(),
+      max_results: metadataMaxEl.value.trim(),
+      providers: Array.from(metadataProvidersEl.selectedOptions).map((opt) => opt.value),
+      output_csv: metadataOutputEl.value.trim(),
+    },
+    filter: {
+      provider: filterProviderEl.value,
+      model: filterModelEl.value.trim(),
+      input_csv: filterInputEl.value.trim(),
+      output_csv: filterOutputEl.value.trim(),
+    },
+    download: {
+      provider: downloadProviderEl.value,
+      doi: downloadDoiEl.value.trim(),
+      input_csv: downloadCsvEl.value.trim(),
+      output_dir: downloadOutputEl.value.trim(),
+    },
+    convert: {
+      input_path: convertInputEl.value.trim(),
+      output_dir: convertOutputEl.value.trim(),
+      output_format: convertFormatEl.value,
+      ocr: {
+        engine: ocrEngineEl.value,
+        preset: ocrPresetEl.value,
+        lang: ocrLangEl.value.trim(),
+        dpi: ocrDpiEl.value.trim(),
+        preprocess: ocrPreprocessEl.value,
+        tesseract_config: ocrTesseractConfigEl.value.trim(),
+        easyocr_langs: ocrEasyocrLangsEl.value.trim(),
+        easyocr_gpu: ocrEasyocrGpuEl.value,
+        paddle_lang: ocrPaddleLangEl.value.trim(),
+        paddle_use_angle_cls: ocrPaddleAngleEl.value,
+        paddle_use_gpu: ocrPaddleGpuEl.value,
+      },
+    },
+    llm: {
+      preset: llmPresetEl.value,
+      task: llmTaskEl.value.trim(),
+      output_template: llmOutputTemplateEl.value.trim(),
+      auto_schema_mode: llmAutoSchemaEl ? llmAutoSchemaEl.value : "auto",
+      schema_sample_size: llmSchemaSampleSizeEl ? llmSchemaSampleSizeEl.value.trim() : "",
+      schema_max_fields: llmSchemaMaxFieldsEl ? llmSchemaMaxFieldsEl.value.trim() : "",
+      input_path: llmInputEl.value.trim(),
+      output_path: llmOutputEl.value.trim(),
+      provider: llmProviderEl.value,
+      model: llmModelEl.value.trim(),
+      base_url: llmBaseUrlEl.value.trim(),
+      chat_path: llmChatPathEl.value.trim(),
+      api_key_env: llmKeyEnvEl.value.trim(),
+      api_key_header: llmKeyHeaderEl.value.trim(),
+      api_key_prefix: llmKeyPrefixEl.value.trim(),
+      block_limit: llmBlockLimitEl.value.trim(),
+      temperature: llmTemperatureEl.value.trim(),
+      timeout: llmTimeoutEl.value.trim(),
+    },
+  };
+}
+
+function triggerJsonDownload(payload) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `bensci-config-${stamp}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function runStage(stage) {
   appendLog(`开始执行 ${stepLabels[stage] || stage} ...`);
   let payload = {};
-  let path = "";
 
   if (stage === "metadata") {
     payload = {
       query: metadataQueryEl.value.trim(),
       max_results: metadataMaxEl.value.trim(),
       providers: Array.from(metadataProvidersEl.selectedOptions).map((opt) => opt.value),
+      output_csv: metadataOutputEl.value.trim(),
     };
-    path = "/api/run/metadata";
   } else if (stage === "filter") {
     payload = {
       provider: filterProviderEl.value,
       model: filterModelEl.value.trim(),
+      input_csv: filterInputEl.value.trim(),
+      output_csv: filterOutputEl.value.trim(),
     };
-    path = "/api/run/filter";
   } else if (stage === "download") {
     payload = {
       provider: downloadProviderEl.value,
@@ -505,7 +741,6 @@ async function runStage(stage) {
       input_csv: downloadCsvEl.value.trim(),
       output_dir: downloadOutputEl.value.trim(),
     };
-    path = "/api/run/download";
   } else if (stage === "convert") {
     payload = {
       input_path: convertInputEl.value.trim(),
@@ -522,13 +757,24 @@ async function runStage(stage) {
       ocr_paddle_use_angle_cls: ocrPaddleAngleEl.value,
       ocr_paddle_use_gpu: ocrPaddleGpuEl.value,
     };
-    path = "/api/run/convert";
   } else if (stage === "llm") {
+    const rawTask = llmTaskEl.value.trim();
+    const rawTemplate = llmOutputTemplateEl.value.trim();
+    const autoMode = (llmAutoSchemaEl && llmAutoSchemaEl.value) ? llmAutoSchemaEl.value : "auto";
+    const autoSchema =
+      autoMode === "true"
+        ? true
+        : autoMode === "false"
+          ? false
+          : !rawTask && !rawTemplate;
     payload = {
       input_path: llmInputEl.value.trim(),
       output_path: llmOutputEl.value.trim(),
-      task: llmTaskEl.value.trim(),
-      output_template: llmOutputTemplateEl.value.trim(),
+      task: rawTask,
+      output_template: rawTemplate,
+      auto_schema: autoSchema,
+      schema_sample_size: llmSchemaSampleSizeEl ? llmSchemaSampleSizeEl.value.trim() : "",
+      schema_max_fields: llmSchemaMaxFieldsEl ? llmSchemaMaxFieldsEl.value.trim() : "",
       provider: llmProviderEl.value,
       model: llmModelEl.value.trim(),
       base_url: llmBaseUrlEl.value.trim(),
@@ -540,13 +786,12 @@ async function runStage(stage) {
       temperature: llmTemperatureEl.value.trim(),
       timeout: llmTimeoutEl.value.trim(),
     };
-    path = "/api/run/llm";
   } else {
     appendLog(`未知阶段: ${stage}`);
     return { ok: false };
   }
 
-  const result = await apiPost(path, payload);
+  const result = await apiPost("/api/run", { stage, params: payload });
   try {
     await loadLogs();
   } catch (err) {
@@ -559,43 +804,57 @@ async function runStage(stage) {
 async function init() {
   const state = await apiGet("/api/state");
   cachedConfig = state.config || {};
+  cachedEnv = state.env || {};
+  cachedPaths = state.paths || {};
+  llmProviderPresets = (state.providers && state.providers.llm_presets) || {};
 
   document.getElementById("projectRoot").textContent = state.paths.project_root || "--";
   document.getElementById("envPath").textContent = state.paths.env_file || "--";
   document.getElementById("overridePath").textContent = state.paths.override_file || "--";
 
-  const knownEnvKeys = [
-    "ELSEVIER_API_KEY",
-    "SPRINGER_OPEN_ACCESS_KEY",
-    "SPRINGER_META_API_KEY",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
-    "CHAT_ANYWHERE_API_KEY",
-    "DASHSCOPE_API_KEY",
-    "DEEPSEEK_API_KEY",
-    "MOONSHOT_API_KEY",
-    "ZHIPU_API_KEY",
-    "BAICHUAN_API_KEY",
-    "MINIMAX_API_KEY",
-  ];
-
-  const envValues = state.env || {};
   envListEl.innerHTML = "";
-  knownEnvKeys.forEach((key) => {
-    addEnvRow(key, envValues[key] || "");
-  });
-  Object.keys(envValues)
-    .filter((key) => !knownEnvKeys.includes(key))
-    .forEach((key) => addEnvRow(key, envValues[key] || ""));
+  removedEnvKeys.clear();
+  const llmEnvKeys = new Set(
+    Object.values(llmProviderPresets)
+      .map((preset) => preset.api_key_env)
+      .filter(Boolean)
+  );
+  Object.entries(cachedEnv)
+    .filter(([key, value]) => value && value.toString().trim() !== "" && !llmEnvKeys.has(key))
+    .forEach(([key, value]) => addEnvRow(key, value));
+  updateEnvEmptyState();
 
   overrideJsonEl.value = JSON.stringify(state.override || {}, null, 2);
+  const stageDefaults = normalizeStageDefaults((state.override || {}).STAGE_CONFIGS);
+  cachedStageDefaults = stageDefaults;
+
+  const metadataOutputDefault =
+    (stageDefaults.metadata && stageDefaults.metadata.output_csv) ||
+    cachedConfig.METADATA_CSV_PATH ||
+    "";
+  if (metadataOutputEl) metadataOutputEl.value = metadataOutputDefault;
+  if (filterInputEl) {
+    filterInputEl.value =
+      (stageDefaults.filter && stageDefaults.filter.input_csv) ||
+      metadataOutputDefault ||
+      cachedConfig.METADATA_CSV_PATH ||
+      "";
+  }
+  if (filterOutputEl) {
+    filterOutputEl.value =
+      (stageDefaults.filter && stageDefaults.filter.output_csv) ||
+      cachedConfig.FILTERED_METADATA_CSV_PATH ||
+      "";
+  }
 
   metadataQueryEl.value = cachedConfig.METADATA_DEFAULT_QUERY || "";
   metadataMaxEl.value = cachedConfig.METADATA_MAX_RESULTS || "";
   populateProviders(metadataProvidersEl, state.providers.metadata || []);
   setMultiSelect(metadataProvidersEl, cachedConfig.METADATA_PROVIDERS || []);
 
-  populateProviders(filterProviderEl, state.providers.llm || []);
+  const llmProviders = state.providers.llm || [];
+  populateProviders(filterProviderEl, llmProviders);
+  ensureOption(filterProviderEl, cachedConfig.METADATA_FILTER_PROVIDER);
   filterProviderEl.value = cachedConfig.METADATA_FILTER_PROVIDER || "";
   filterModelEl.value = cachedConfig.METADATA_FILTER_MODEL || "";
 
@@ -607,11 +866,24 @@ async function init() {
     label: "auto",
   });
   downloadProviderEl.value = "auto";
-  downloadCsvEl.value = cachedConfig.METADATA_CSV_PATH || "";
-  downloadOutputEl.value = cachedConfig.ASSETS2_DIR || "";
+  downloadCsvEl.value =
+    (stageDefaults.download && stageDefaults.download.input_csv) ||
+    cachedConfig.METADATA_CSV_PATH ||
+    "";
+  downloadOutputEl.value =
+    (stageDefaults.download && stageDefaults.download.output_dir) ||
+    cachedConfig.ASSETS2_DIR ||
+    "";
 
-  convertInputEl.value = cachedConfig.XML_SOURCE_DIR || cachedConfig.ASSETS2_DIR || "";
-  convertOutputEl.value = cachedConfig.BLOCKS_OUTPUT_DIR || "";
+  convertInputEl.value =
+    (stageDefaults.convert && stageDefaults.convert.input_path) ||
+    cachedConfig.XML_SOURCE_DIR ||
+    cachedConfig.ASSETS2_DIR ||
+    "";
+  convertOutputEl.value =
+    (stageDefaults.convert && stageDefaults.convert.output_dir) ||
+    cachedConfig.BLOCKS_OUTPUT_DIR ||
+    "";
   if (cachedConfig.TRANSER_OUTPUT_FORMAT) {
     convertFormatEl.value = cachedConfig.TRANSER_OUTPUT_FORMAT;
   }
@@ -644,7 +916,8 @@ async function init() {
     ocrPaddleGpuEl.value = "";
   }
 
-  populateProviders(llmProviderEl, state.providers.llm || []);
+  populateProviders(llmProviderEl, llmProviders);
+  ensureOption(llmProviderEl, cachedConfig.LLM_EXTRACTION_PROVIDER);
   llmProviderEl.value = cachedConfig.LLM_EXTRACTION_PROVIDER || "";
   llmModelEl.value = cachedConfig.LLM_EXTRACTION_MODEL || "";
   llmBaseUrlEl.value = cachedConfig.LLM_EXTRACTION_BASE_URL || "";
@@ -655,21 +928,41 @@ async function init() {
   llmBlockLimitEl.value = cachedConfig.LLM_EXTRACTION_BLOCK_LIMIT || "";
   llmTemperatureEl.value = cachedConfig.LLM_EXTRACTION_TEMPERATURE || "";
   llmTimeoutEl.value = cachedConfig.LLM_EXTRACTION_TIMEOUT || "";
-  llmInputEl.value = cachedConfig.BLOCKS_OUTPUT_DIR || "";
-  llmOutputEl.value = cachedConfig.LLM_EXTRACTION_OUTPUT_PATH || "";
+  llmInputEl.value =
+    (stageDefaults.llm && stageDefaults.llm.input_path) ||
+    cachedConfig.BLOCKS_OUTPUT_DIR ||
+    "";
+  llmOutputEl.value =
+    (stageDefaults.llm && stageDefaults.llm.output_path) ||
+    cachedConfig.LLM_EXTRACTION_OUTPUT_PATH ||
+    "";
   llmTaskEl.value = cachedConfig.LLM_EXTRACTION_TASK_PROMPT || "";
+  if (llmAutoSchemaEl) {
+    llmAutoSchemaEl.value = "auto";
+  }
+  if (llmSchemaSampleSizeEl) {
+    llmSchemaSampleSizeEl.value = "";
+  }
+  if (llmSchemaMaxFieldsEl) {
+    llmSchemaMaxFieldsEl.value = "";
+  }
   if (cachedConfig.LLM_EXTRACTION_OUTPUT_TEMPLATE) {
     llmOutputTemplateEl.value = JSON.stringify(cachedConfig.LLM_EXTRACTION_OUTPUT_TEMPLATE, null, 2);
   }
   populatePresetSelect(llmPresetEl, llmPresets);
   llmPresetEl.value = "custom";
 
-  pathMetadataCsvEl.value = cachedConfig.METADATA_CSV_PATH || "";
-  pathFilteredCsvEl.value = cachedConfig.FILTERED_METADATA_CSV_PATH || "";
-  pathAssets2El.value = cachedConfig.ASSETS2_DIR || "";
-  pathXmlSourceEl.value = cachedConfig.XML_SOURCE_DIR || "";
-  pathBlocksOutputEl.value = cachedConfig.BLOCKS_OUTPUT_DIR || "";
-  pathLlmOutputEl.value = cachedConfig.LLM_EXTRACTION_OUTPUT_PATH || "";
+  if (llmQuickProviderEl) {
+    populateProviders(llmQuickProviderEl, llmProviders);
+    const defaultProvider = cachedConfig.LLM_EXTRACTION_PROVIDER || llmProviders[0] || "";
+    ensureOption(llmQuickProviderEl, defaultProvider);
+    llmQuickProviderEl.value = defaultProvider;
+    applyLlmQuickPreset(defaultProvider);
+  }
+  if (llmQuickModelEl) {
+    llmQuickModelEl.value = cachedConfig.LLM_EXTRACTION_MODEL || "";
+  }
+
   updateConfigVisibility();
   try {
     await loadLogs();
@@ -692,6 +985,12 @@ ocrPresetEl.addEventListener("change", () => {
 llmPresetEl.addEventListener("change", () => {
   applyLlmPreset(llmPresetEl.value);
 });
+
+if (llmQuickProviderEl) {
+  llmQuickProviderEl.addEventListener("change", () => {
+    applyLlmQuickPreset(llmQuickProviderEl.value);
+  });
+}
 
 runPipelineBtn.addEventListener("click", async () => {
   if (pipelineQueue.length === 0) {
@@ -733,6 +1032,14 @@ document.querySelectorAll(".run-btn").forEach((btn) => {
   });
 });
 
+document.querySelectorAll("[data-save]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const stage = btn.dataset.save;
+    if (!stage) return;
+    await saveStagePaths(stage, btn);
+  });
+});
+
 
 document.getElementById("addEnv").addEventListener("click", () => addEnvRow());
 
@@ -740,6 +1047,13 @@ document.getElementById("saveEnv").addEventListener("click", async () => {
   const updates = collectEnvUpdates();
   try {
     await apiPost("/api/env", { values: updates });
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === "") {
+        delete cachedEnv[key];
+      } else {
+        cachedEnv[key] = value;
+      }
+    });
     removedEnvKeys.clear();
     appendLog("ENV 已保存。");
   } catch (err) {
@@ -747,45 +1061,75 @@ document.getElementById("saveEnv").addEventListener("click", async () => {
   }
 });
 
+if (saveLlmQuickBtn) {
+  saveLlmQuickBtn.addEventListener("click", async () => {
+    const provider = llmQuickProviderEl ? llmQuickProviderEl.value : "";
+    const model = llmQuickModelEl ? llmQuickModelEl.value.trim() : "";
+    if (!provider) {
+      appendLog("请先选择 LLM Provider。");
+      return;
+    }
+    if (!model) {
+      appendLog("请输入 LLM 模型。");
+      return;
+    }
+    const preset = llmProviderPresets[provider];
+    if (!preset) {
+      appendLog(`未找到 ${provider} 的预设配置。`);
+      return;
+    }
+    const overrides = parseOverrideJson();
+    if (overrides === null) {
+      return;
+    }
+    const overrideUpdates = {
+      LLM_EXTRACTION_PROVIDER: provider,
+      LLM_EXTRACTION_MODEL: model,
+      LLM_EXTRACTION_BASE_URL: preset.base_url,
+      LLM_EXTRACTION_CHAT_PATH: preset.chat_path,
+      LLM_EXTRACTION_API_KEY_ENV: preset.api_key_env,
+      METADATA_FILTER_PROVIDER: provider,
+      METADATA_FILTER_MODEL: model,
+    };
+    Object.entries(overrideUpdates).forEach(([key, value]) => {
+      if (value !== undefined) {
+        overrides[key] = value;
+      }
+    });
+    saveLlmQuickBtn.disabled = true;
+    try {
+      await apiPost("/api/config", { overrides });
+      writeOverrideJson(overrides);
+      cachedConfig = { ...cachedConfig, ...overrideUpdates };
+      if (filterProviderEl) filterProviderEl.value = provider;
+      if (filterModelEl) filterModelEl.value = model;
+      if (llmProviderEl) llmProviderEl.value = provider;
+      if (llmModelEl) llmModelEl.value = model;
+      if (llmBaseUrlEl) llmBaseUrlEl.value = preset.base_url || "";
+      if (llmChatPathEl) llmChatPathEl.value = preset.chat_path || "";
+      if (llmKeyEnvEl) llmKeyEnvEl.value = preset.api_key_env || "";
 
-document.getElementById("savePaths").addEventListener("click", async () => {
-  const overrides = readOverrideJson();
-  const updates = {
-    METADATA_CSV_PATH: pathMetadataCsvEl.value.trim() || null,
-    FILTERED_METADATA_CSV_PATH: pathFilteredCsvEl.value.trim() || null,
-    ASSETS2_DIR: pathAssets2El.value.trim() || null,
-    XML_SOURCE_DIR: pathXmlSourceEl.value.trim() || null,
-    BLOCKS_OUTPUT_DIR: pathBlocksOutputEl.value.trim() || null,
-    LLM_EXTRACTION_OUTPUT_PATH: pathLlmOutputEl.value.trim() || null,
-  };
-  Object.entries(updates).forEach(([key, value]) => {
-    if (!value) {
-      delete overrides[key];
-    } else {
-      overrides[key] = value;
+      const apiKey = llmQuickKeyEl ? llmQuickKeyEl.value.trim() : "";
+      if (apiKey && preset.api_key_env) {
+        await apiPost("/api/env", { values: { [preset.api_key_env]: apiKey } });
+        cachedEnv[preset.api_key_env] = apiKey;
+        appendLog("LLM 配置已保存并写入 ENV。");
+      } else {
+        appendLog("LLM 配置已保存。");
+      }
+    } catch (err) {
+      appendLog(`LLM 配置保存失败: ${err.message}`);
+    } finally {
+      saveLlmQuickBtn.disabled = false;
     }
   });
-
-  try {
-    await apiPost("/api/config", { overrides });
-    writeOverrideJson(overrides);
-    appendLog("路径配置已保存到 Override。");
-  } catch (err) {
-    appendLog(`路径保存失败: ${err.message}`);
-  }
-});
+}
 
 
 document.getElementById("saveOverride").addEventListener("click", async () => {
-  let overrides = {};
-  const raw = overrideJsonEl.value.trim();
-  if (raw) {
-    try {
-      overrides = JSON.parse(raw);
-    } catch (err) {
-      appendLog("Override JSON 无法解析，请检查格式。");
-      return;
-    }
+  const overrides = parseOverrideJson();
+  if (overrides === null) {
+    return;
   }
   try {
     await apiPost("/api/config", { overrides });
@@ -795,10 +1139,34 @@ document.getElementById("saveOverride").addEventListener("click", async () => {
   }
 });
 
+if (exportConfigBtn) {
+  exportConfigBtn.addEventListener("click", () => {
+    const overrides = parseOverrideJson();
+    if (overrides === null) {
+      return;
+    }
+    const payload = {
+      exported_at: new Date().toISOString(),
+      project: cachedPaths,
+      pipeline_queue: [...pipelineQueue],
+      env: buildEnvSnapshot(),
+      overrides,
+      ui: collectUiSnapshot(),
+    };
+    triggerJsonDownload(payload);
+    appendLog("配置 JSON 已导出。");
+  });
+}
+
 
 document.getElementById("useFiltered").addEventListener("click", () => {
-  if (cachedConfig.FILTERED_METADATA_CSV_PATH) {
-    downloadCsvEl.value = cachedConfig.FILTERED_METADATA_CSV_PATH;
+  const filteredValue =
+    (filterOutputEl && filterOutputEl.value.trim()) ||
+    (cachedStageDefaults.filter && cachedStageDefaults.filter.output_csv) ||
+    cachedConfig.FILTERED_METADATA_CSV_PATH ||
+    "";
+  if (filteredValue) {
+    downloadCsvEl.value = filteredValue;
   }
 });
 

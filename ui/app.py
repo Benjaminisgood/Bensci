@@ -6,8 +6,9 @@ import logging
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from flask import Flask, jsonify, render_template, request
 
@@ -79,6 +80,8 @@ CONFIG_KEYS = [
     "TRANSER_OUTPUT_FORMAT",
 ]
 
+STAGE_CONFIG_KEY = "STAGE_CONFIGS"
+
 
 def _to_jsonable(value: Any) -> Any:
     if isinstance(value, Path):
@@ -148,6 +151,18 @@ def load_override_config(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def load_stage_defaults(path: Path) -> Dict[str, Dict[str, Any]]:
+    overrides = load_override_config(path)
+    raw = overrides.get(STAGE_CONFIG_KEY) if isinstance(overrides, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    normalized: Dict[str, Dict[str, Any]] = {}
+    for stage, cfg in raw.items():
+        if isinstance(stage, str) and isinstance(cfg, dict):
+            normalized[stage] = cfg
+    return normalized
 
 
 def save_override_config(path: Path, overrides: Dict[str, Any]) -> None:
@@ -241,6 +256,391 @@ def run_python_snippet(
     return run_subprocess([sys.executable, "-c", code], extra_env=extra_env, source=source)
 
 
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text)
+    return None
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _merge_stage_params(stage: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    defaults = load_stage_defaults(CONFIG_OVERRIDE_PATH).get(stage, {})
+    merged: Dict[str, Any] = {}
+    if isinstance(defaults, dict):
+        merged.update(defaults)
+    if isinstance(params, dict):
+        merged.update(params)
+    return merged
+
+
+def _run_metadata_stage(params: Dict[str, Any]) -> Dict[str, Any]:
+    query = (params.get("query") or "").strip()
+    max_results = params.get("max_results")
+    providers = params.get("providers") or []
+    output_csv = (params.get("output_csv") or "").strip()
+    if isinstance(providers, str):
+        providers = [p.strip() for p in providers.split(",") if p.strip()]
+
+    max_literal = int(max_results) if str(max_results).isdigit() else 0
+    provider_raw = ",".join(providers)
+
+    code = """
+import sys
+from pathlib import Path
+from bensci import config
+
+query = {query}
+max_results = int({max_results})
+provider_raw = {provider_raw}.strip()
+output_csv = {output_csv}
+
+if output_csv:
+    path = Path(output_csv)
+    config.METADATA_CSV_PATH = path
+    config.ASSETS1_DIR = path.parent
+
+from bensci import metadata_fetcher
+
+if output_csv:
+    metadata_fetcher.METADATA_CSV_PATH = config.METADATA_CSV_PATH
+    metadata_fetcher.ASSETS1_DIR = config.ASSETS1_DIR
+
+if max_results <= 0:
+    max_results = int(getattr(config, "METADATA_MAX_RESULTS", 200))
+
+if provider_raw:
+    cleaned = tuple(p.strip() for p in provider_raw.replace(";", ",").split(",") if p.strip())
+    if cleaned:
+        config.METADATA_PROVIDERS = cleaned
+        config.METADATA_PROVIDER_PREFERENCE = cleaned
+
+records = metadata_fetcher.fetch_metadata(query=query, max_results=max_results)
+if not records:
+    print("未检索到任何记录，请检查查询条件或接口状态。")
+    sys.exit(1)
+
+metadata_fetcher.write_metadata_csv(records)
+print("metadata_saved=", config.METADATA_CSV_PATH)
+""".format(
+        query=json.dumps(query),
+        max_results=max_literal,
+        provider_raw=json.dumps(provider_raw),
+        output_csv=json.dumps(output_csv),
+    )
+
+    return run_python_snippet(code, source="metadata_fetcher.py")
+
+
+def _run_filter_stage(params: Dict[str, Any]) -> Dict[str, Any]:
+    provider = (params.get("provider") or "").strip()
+    model = (params.get("model") or "").strip()
+    base_url = (params.get("base_url") or "").strip()
+    chat_path = (params.get("chat_path") or "").strip()
+    api_key_env = (params.get("api_key_env") or "").strip()
+    api_key_header = (params.get("api_key_header") or "").strip()
+    api_key_prefix = params.get("api_key_prefix")
+    if api_key_prefix is not None:
+        api_key_prefix = str(api_key_prefix).strip() or None
+    temperature = _coerce_float(params.get("temperature"))
+    timeout = _coerce_int(params.get("timeout"))
+    sleep = _coerce_float(params.get("sleep"))
+    input_csv = (params.get("input_csv") or "").strip()
+    output_csv = (params.get("output_csv") or "").strip()
+
+    code = """
+from pathlib import Path
+from bensci import metadata_filter_utils as mf
+
+input_csv = {input_csv}
+output_csv = {output_csv}
+
+input_csv = (input_csv or "").strip()
+output_csv = (output_csv or "").strip()
+
+if input_csv:
+    mf.SOURCE_CSV = Path(input_csv)
+if output_csv:
+    mf.TARGET_CSV = Path(output_csv)
+if output_csv:
+    mf.ASSETS1_DIR = Path(output_csv).parent
+elif input_csv:
+    mf.ASSETS1_DIR = Path(input_csv).parent
+
+provider = {provider}
+model = {model}
+base_url = {base_url}
+chat_path = {chat_path}
+api_key_env = {api_key_env}
+api_key_header = {api_key_header}
+api_key_prefix = {api_key_prefix}
+temperature = {temperature}
+timeout = {timeout}
+sleep_seconds = {sleep_seconds}
+
+provider = (provider or "").strip() or mf.DEFAULT_PROVIDER
+model = (model or "").strip() or mf.DEFAULT_MODEL
+base_url = (base_url or "").strip() or mf.DEFAULT_BASE_URL
+chat_path = (chat_path or "").strip() or mf.DEFAULT_CHAT_PATH
+api_key_env = (api_key_env or "").strip() or mf.DEFAULT_API_KEY_ENV
+api_key_header = (api_key_header or "").strip() or mf.DEFAULT_API_KEY_HEADER
+api_key_prefix = (api_key_prefix or "").strip() or mf.DEFAULT_API_KEY_PREFIX
+
+if temperature is None:
+    temperature = mf.DEFAULT_TEMPERATURE
+if timeout is None:
+    timeout = mf.DEFAULT_TIMEOUT
+if sleep_seconds is None:
+    sleep_seconds = mf.DEFAULT_SLEEP_SECONDS
+
+count = mf.filter_metadata(
+    provider=provider,
+    model=model,
+    base_url=base_url,
+    chat_path=chat_path,
+    api_key_env=api_key_env,
+    api_key_header=api_key_header,
+    api_key_prefix=api_key_prefix,
+    temperature=temperature,
+    timeout=timeout,
+    sleep_seconds=sleep_seconds,
+)
+print("filter_passed=", count)
+""".format(
+        input_csv=repr(input_csv),
+        output_csv=repr(output_csv),
+        provider=repr(provider),
+        model=repr(model),
+        base_url=repr(base_url),
+        chat_path=repr(chat_path),
+        api_key_env=repr(api_key_env),
+        api_key_header=repr(api_key_header),
+        api_key_prefix=repr(api_key_prefix),
+        temperature=repr(temperature),
+        timeout=repr(timeout),
+        sleep_seconds=repr(sleep),
+    )
+
+    return run_python_snippet(code, source="metadata_filter_utils.py")
+
+
+def _run_download_stage(params: Dict[str, Any]) -> Dict[str, Any]:
+    provider = (params.get("provider") or "auto").strip() or "auto"
+    doi = (params.get("doi") or "").strip()
+    input_csv = (params.get("input_csv") or "").strip()
+    output_dir = (params.get("output_dir") or "").strip()
+
+    cmd = [sys.executable, "-m", "bensci.literature_fetcher"]
+    if input_csv:
+        cmd += ["--input", input_csv]
+    if output_dir:
+        cmd += ["--output", output_dir]
+    if provider:
+        cmd += ["--provider", provider]
+    if doi:
+        cmd += ["--doi", doi]
+    return run_subprocess(cmd, source="literature_fetcher.py")
+
+
+def _run_convert_stage(params: Dict[str, Any]) -> Dict[str, Any]:
+    input_path = (params.get("input_path") or "").strip()
+    output_dir = (params.get("output_dir") or "").strip()
+    parser = (params.get("parser") or "").strip()
+    output_format = (params.get("output_format") or "").strip()
+    ocr_engine = (params.get("ocr_engine") or "").strip()
+    ocr_lang = (params.get("ocr_lang") or "").strip()
+    ocr_dpi = params.get("ocr_dpi")
+    ocr_preprocess = (params.get("ocr_preprocess") or "").strip()
+    ocr_tesseract_config = (params.get("ocr_tesseract_config") or "").strip()
+    ocr_easyocr_langs = (params.get("ocr_easyocr_langs") or "").strip()
+    ocr_easyocr_gpu = (params.get("ocr_easyocr_gpu") or "").strip()
+    ocr_paddle_lang = (params.get("ocr_paddle_lang") or "").strip()
+    ocr_paddle_use_angle_cls = (params.get("ocr_paddle_use_angle_cls") or "").strip()
+    ocr_paddle_use_gpu = (params.get("ocr_paddle_use_gpu") or "").strip()
+
+    cmd = [sys.executable, "-m", "bensci.literature_transer"]
+    if input_path:
+        cmd += ["--input", input_path]
+    if output_dir:
+        cmd += ["--output", output_dir]
+    if parser:
+        cmd += ["--parser", parser]
+    if output_format:
+        cmd += ["--output-format", output_format]
+    if ocr_engine:
+        cmd += ["--ocr-engine", ocr_engine]
+    if ocr_lang:
+        cmd += ["--ocr-lang", ocr_lang]
+    if str(ocr_dpi).isdigit():
+        cmd += ["--ocr-dpi", str(ocr_dpi)]
+    if ocr_preprocess:
+        cmd += ["--ocr-preprocess", ocr_preprocess]
+    if ocr_tesseract_config:
+        cmd += ["--ocr-tesseract-config", ocr_tesseract_config]
+    if ocr_easyocr_langs:
+        cmd += ["--ocr-easyocr-langs", ocr_easyocr_langs]
+    if ocr_easyocr_gpu in {"true", "false"}:
+        cmd += ["--ocr-easyocr-gpu", ocr_easyocr_gpu]
+    if ocr_paddle_lang:
+        cmd += ["--ocr-paddle-lang", ocr_paddle_lang]
+    if ocr_paddle_use_angle_cls in {"true", "false"}:
+        cmd += ["--ocr-paddle-use-angle-cls", ocr_paddle_use_angle_cls]
+    if ocr_paddle_use_gpu in {"true", "false"}:
+        cmd += ["--ocr-paddle-use-gpu", ocr_paddle_use_gpu]
+    return run_subprocess(cmd, source="literature_transer.py")
+
+
+def _run_llm_stage(params: Dict[str, Any]) -> Dict[str, Any]:
+    input_path = (params.get("input_path") or "").strip()
+    output_path = (params.get("output_path") or "").strip()
+    provider = (params.get("provider") or "").strip()
+    model = (params.get("model") or "").strip()
+    base_url = (params.get("base_url") or "").strip()
+    chat_path = (params.get("chat_path") or "").strip()
+    api_key_env = (params.get("api_key_env") or "").strip()
+    api_key_header = (params.get("api_key_header") or "").strip()
+    api_key_prefix = params.get("api_key_prefix")
+    block_limit = params.get("block_limit")
+    temperature = params.get("temperature")
+    timeout = params.get("timeout")
+    task = (params.get("task") or "").strip()
+    output_template = (params.get("output_template") or "").strip()
+    system_prompt = (params.get("system_prompt") or "").strip()
+    user_prompt_template = (params.get("user_prompt_template") or "").strip()
+    auto_schema = params.get("auto_schema")
+    schema_sample_size = params.get("schema_sample_size")
+    schema_max_fields = params.get("schema_max_fields")
+    schema_output = (params.get("schema_output") or "").strip()
+
+    cmd = [sys.executable, "-m", "bensci.llm_info_extractor"]
+    if input_path:
+        cmd += ["--input", input_path]
+    if output_path:
+        cmd += ["--output", output_path]
+    if system_prompt:
+        cmd += ["--system-prompt", system_prompt]
+    if user_prompt_template:
+        cmd += ["--user-prompt-template", user_prompt_template]
+    if task:
+        cmd += ["--task", task]
+    if output_template:
+        cmd += ["--output-template", output_template]
+    if str(auto_schema).lower() in {"true", "1", "yes", "y"}:
+        cmd += ["--auto-schema"]
+    if str(schema_sample_size).isdigit():
+        cmd += ["--schema-sample-size", str(schema_sample_size)]
+    if str(schema_max_fields).isdigit():
+        cmd += ["--schema-max-fields", str(schema_max_fields)]
+    if schema_output:
+        cmd += ["--schema-output", schema_output]
+    if model:
+        cmd += ["--model", model]
+    if provider:
+        cmd += ["--provider", provider]
+    if base_url:
+        cmd += ["--base-url", base_url]
+    if chat_path:
+        cmd += ["--chat-path", chat_path]
+    if api_key_env:
+        cmd += ["--api-key-env", api_key_env]
+    if api_key_header:
+        cmd += ["--api-key-header", api_key_header]
+    if api_key_prefix is not None and str(api_key_prefix).strip() != "":
+        cmd += ["--api-key-prefix", str(api_key_prefix)]
+    if str(block_limit).isdigit():
+        cmd += ["--block-limit", str(block_limit)]
+    if temperature is not None and str(temperature).strip() != "":
+        cmd += ["--temperature", str(temperature)]
+    if str(timeout).isdigit():
+        cmd += ["--timeout", str(timeout)]
+
+    return run_subprocess(cmd, source="llm_info_extractor.py")
+
+
+@dataclass(frozen=True)
+class StageSpec:
+    key: str
+    label: str
+    source: str
+    handler: Callable[[Dict[str, Any]], Dict[str, Any]]
+
+
+STAGES = {
+    "metadata": StageSpec(
+        key="metadata",
+        label="元数据聚合",
+        source="metadata_fetcher.py",
+        handler=_run_metadata_stage,
+    ),
+    "filter": StageSpec(
+        key="filter",
+        label="摘要筛选",
+        source="metadata_filter_utils.py",
+        handler=_run_filter_stage,
+    ),
+    "download": StageSpec(
+        key="download",
+        label="下载全文",
+        source="literature_fetcher.py",
+        handler=_run_download_stage,
+    ),
+    "convert": StageSpec(
+        key="convert",
+        label="格式转化统一",
+        source="literature_transer.py",
+        handler=_run_convert_stage,
+    ),
+    "llm": StageSpec(
+        key="llm",
+        label="LLM 抽取建表",
+        source="llm_info_extractor.py",
+        handler=_run_llm_stage,
+    ),
+}
+
+
+def execute_stage(stage: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    spec = STAGES.get(stage)
+    if not spec:
+        return {"ok": False, "error": f"unknown stage: {stage}"}
+    merged = _merge_stage_params(stage, params)
+    _log_pipeline(f"开始执行 {spec.label}", source=spec.source)
+    try:
+        result = spec.handler(merged)
+    except Exception as exc:  # noqa: BLE001
+        _log_pipeline(
+            f"执行 {spec.label} 失败: {exc}",
+            source=spec.source,
+            level=logging.ERROR,
+        )
+        return {"ok": False, "error": str(exc)}
+    _log_pipeline(
+        f"完成 {spec.label} -> {'OK' if result.get('ok') else 'FAILED'}",
+        source=spec.source,
+        level=logging.INFO if result.get("ok") else logging.ERROR,
+    )
+    return result
+
+
 def _extract_log_source(line: str) -> Optional[str]:
     parts = line.split(" | ", 3)
     if len(parts) < 3:
@@ -289,6 +689,17 @@ def api_state():
             "metadata": sorted(PROVIDER_CLIENTS.keys()),
             "download": sorted(available_fetchers()),
             "llm": sorted(PROVIDER_PRESETS.keys()),
+            "llm_presets": {
+                name: {
+                    "provider": preset.provider,
+                    "base_url": preset.base_url,
+                    "chat_path": preset.chat_path,
+                    "api_key_env": preset.api_key_env,
+                    "api_key_header": preset.api_key_header,
+                    "api_key_prefix": preset.api_key_prefix,
+                }
+                for name, preset in PROVIDER_PRESETS.items()
+            },
         },
     }
     return jsonify(payload)
@@ -341,255 +752,46 @@ def api_config():
     return jsonify({"ok": True})
 
 
+@app.post("/api/run")
+def api_run_stage():
+    data = request.get_json(force=True) or {}
+    stage = (data.get("stage") or "").strip()
+    params = data.get("params") or {}
+    if not stage:
+        return jsonify({"ok": False, "error": "stage is required"}), 400
+    if not isinstance(params, dict):
+        return jsonify({"ok": False, "error": "params must be an object"}), 400
+    return jsonify(execute_stage(stage, params))
+
+
 @app.post("/api/run/metadata")
 def api_run_metadata():
     data = request.get_json(force=True) or {}
-    query = (data.get("query") or "").strip()
-    max_results = data.get("max_results")
-    providers = data.get("providers") or []
-    if isinstance(providers, str):
-        providers = [p.strip() for p in providers.split(",") if p.strip()]
-
-    max_literal = int(max_results) if str(max_results).isdigit() else 0
-    provider_raw = ",".join(providers)
-
-    code = """
-import sys
-from bensci import config
-from bensci import metadata_fetcher
-
-query = {query}
-max_results = int({max_results})
-provider_raw = {provider_raw}.strip()
-if max_results <= 0:
-    max_results = int(getattr(config, "METADATA_MAX_RESULTS", 200))
-
-if provider_raw:
-    cleaned = tuple(p.strip() for p in provider_raw.replace(";", ",").split(",") if p.strip())
-    if cleaned:
-        config.METADATA_PROVIDERS = cleaned
-        config.METADATA_PROVIDER_PREFERENCE = cleaned
-
-records = metadata_fetcher.fetch_metadata(query=query, max_results=max_results)
-if not records:
-    print("未检索到任何记录，请检查查询条件或接口状态。")
-    sys.exit(1)
-
-metadata_fetcher.write_metadata_csv(records)
-print("metadata_saved=", config.METADATA_CSV_PATH)
-""".format(
-        query=json.dumps(query),
-        max_results=max_literal,
-        provider_raw=json.dumps(provider_raw),
-    )
-
-    source = "metadata_fetcher.py"
-    _log_pipeline("开始执行 元数据聚合", source=source)
-    result = run_python_snippet(code, source=source)
-    _log_pipeline(
-        f"完成 元数据聚合 -> {'OK' if result['ok'] else 'FAILED'}",
-        source=source,
-        level=logging.INFO if result["ok"] else logging.ERROR,
-    )
-    return jsonify(result)
+    return jsonify(execute_stage("metadata", data))
 
 
 @app.post("/api/run/filter")
 def api_run_filter():
     data = request.get_json(force=True) or {}
-    provider = (data.get("provider") or "").strip()
-    model = (data.get("model") or "").strip()
-    base_url = (data.get("base_url") or "").strip()
-    chat_path = (data.get("chat_path") or "").strip()
-    api_key_env = (data.get("api_key_env") or "").strip()
-    api_key_header = (data.get("api_key_header") or "").strip()
-    api_key_prefix = data.get("api_key_prefix")
-    temperature = data.get("temperature")
-    timeout = data.get("timeout")
-    sleep = data.get("sleep")
-
-    cmd = [sys.executable, "-m", "bensci.metadata_filter_utils"]
-    if provider:
-        cmd += ["--provider", provider]
-    if model:
-        cmd += ["--model", model]
-    if base_url:
-        cmd += ["--base-url", base_url]
-    if chat_path:
-        cmd += ["--chat-path", chat_path]
-    if api_key_env:
-        cmd += ["--api-key-env", api_key_env]
-    if api_key_header:
-        cmd += ["--api-key-header", api_key_header]
-    if api_key_prefix is not None and str(api_key_prefix).strip() != "":
-        cmd += ["--api-key-prefix", str(api_key_prefix)]
-    if temperature is not None and str(temperature).strip() != "":
-        cmd += ["--temperature", str(temperature)]
-    if str(timeout).isdigit():
-        cmd += ["--timeout", str(timeout)]
-    if sleep is not None and str(sleep).strip() != "":
-        cmd += ["--sleep", str(sleep)]
-
-    source = "metadata_filter_utils.py"
-    _log_pipeline("开始执行 摘要筛选", source=source)
-    result = run_subprocess(cmd, source=source)
-    _log_pipeline(
-        f"完成 摘要筛选 -> {'OK' if result['ok'] else 'FAILED'}",
-        source=source,
-        level=logging.INFO if result["ok"] else logging.ERROR,
-    )
-    return jsonify(result)
+    return jsonify(execute_stage("filter", data))
 
 
 @app.post("/api/run/download")
 def api_run_download():
     data = request.get_json(force=True) or {}
-    provider = (data.get("provider") or "auto").strip() or "auto"
-    doi = (data.get("doi") or "").strip()
-    input_csv = (data.get("input_csv") or "").strip()
-    output_dir = (data.get("output_dir") or "").strip()
-
-    cmd = [sys.executable, "-m", "bensci.literature_fetcher"]
-    if input_csv:
-        cmd += ["--input", input_csv]
-    if output_dir:
-        cmd += ["--output", output_dir]
-    if provider:
-        cmd += ["--provider", provider]
-    if doi:
-        cmd += ["--doi", doi]
-    source = "literature_fetcher.py"
-    _log_pipeline("开始执行 下载全文", source=source)
-    result = run_subprocess(cmd, source=source)
-    _log_pipeline(
-        f"完成 下载全文 -> {'OK' if result['ok'] else 'FAILED'}",
-        source=source,
-        level=logging.INFO if result["ok"] else logging.ERROR,
-    )
-    return jsonify(result)
+    return jsonify(execute_stage("download", data))
 
 
 @app.post("/api/run/convert")
 def api_run_convert():
     data = request.get_json(force=True) or {}
-    input_path = (data.get("input_path") or "").strip()
-    output_dir = (data.get("output_dir") or "").strip()
-    parser = (data.get("parser") or "").strip()
-    output_format = (data.get("output_format") or "").strip()
-    ocr_engine = (data.get("ocr_engine") or "").strip()
-    ocr_lang = (data.get("ocr_lang") or "").strip()
-    ocr_dpi = data.get("ocr_dpi")
-    ocr_preprocess = (data.get("ocr_preprocess") or "").strip()
-    ocr_tesseract_config = (data.get("ocr_tesseract_config") or "").strip()
-    ocr_easyocr_langs = (data.get("ocr_easyocr_langs") or "").strip()
-    ocr_easyocr_gpu = (data.get("ocr_easyocr_gpu") or "").strip()
-    ocr_paddle_lang = (data.get("ocr_paddle_lang") or "").strip()
-    ocr_paddle_use_angle_cls = (data.get("ocr_paddle_use_angle_cls") or "").strip()
-    ocr_paddle_use_gpu = (data.get("ocr_paddle_use_gpu") or "").strip()
-
-    cmd = [sys.executable, "-m", "bensci.literature_transer"]
-    if input_path:
-        cmd += ["--input", input_path]
-    if output_dir:
-        cmd += ["--output", output_dir]
-    if parser:
-        cmd += ["--parser", parser]
-    if output_format:
-        cmd += ["--output-format", output_format]
-    if ocr_engine:
-        cmd += ["--ocr-engine", ocr_engine]
-    if ocr_lang:
-        cmd += ["--ocr-lang", ocr_lang]
-    if str(ocr_dpi).isdigit():
-        cmd += ["--ocr-dpi", str(ocr_dpi)]
-    if ocr_preprocess:
-        cmd += ["--ocr-preprocess", ocr_preprocess]
-    if ocr_tesseract_config:
-        cmd += ["--ocr-tesseract-config", ocr_tesseract_config]
-    if ocr_easyocr_langs:
-        cmd += ["--ocr-easyocr-langs", ocr_easyocr_langs]
-    if ocr_easyocr_gpu in {"true", "false"}:
-        cmd += ["--ocr-easyocr-gpu", ocr_easyocr_gpu]
-    if ocr_paddle_lang:
-        cmd += ["--ocr-paddle-lang", ocr_paddle_lang]
-    if ocr_paddle_use_angle_cls in {"true", "false"}:
-        cmd += ["--ocr-paddle-use-angle-cls", ocr_paddle_use_angle_cls]
-    if ocr_paddle_use_gpu in {"true", "false"}:
-        cmd += ["--ocr-paddle-use-gpu", ocr_paddle_use_gpu]
-    source = "literature_transer.py"
-    _log_pipeline("开始执行 转换 JSON", source=source)
-    result = run_subprocess(cmd, source=source)
-    _log_pipeline(
-        f"完成 转换 JSON -> {'OK' if result['ok'] else 'FAILED'}",
-        source=source,
-        level=logging.INFO if result["ok"] else logging.ERROR,
-    )
-    return jsonify(result)
+    return jsonify(execute_stage("convert", data))
 
 
 @app.post("/api/run/llm")
 def api_run_llm():
     data = request.get_json(force=True) or {}
-    input_path = (data.get("input_path") or "").strip()
-    output_path = (data.get("output_path") or "").strip()
-    provider = (data.get("provider") or "").strip()
-    model = (data.get("model") or "").strip()
-    base_url = (data.get("base_url") or "").strip()
-    chat_path = (data.get("chat_path") or "").strip()
-    api_key_env = (data.get("api_key_env") or "").strip()
-    api_key_header = (data.get("api_key_header") or "").strip()
-    api_key_prefix = data.get("api_key_prefix")
-    block_limit = data.get("block_limit")
-    temperature = data.get("temperature")
-    timeout = data.get("timeout")
-    task = (data.get("task") or "").strip()
-    output_template = (data.get("output_template") or "").strip()
-    system_prompt = (data.get("system_prompt") or "").strip()
-    user_prompt_template = (data.get("user_prompt_template") or "").strip()
-
-    cmd = [sys.executable, "-m", "bensci.llm_info_extractor"]
-    if input_path:
-        cmd += ["--input", input_path]
-    if output_path:
-        cmd += ["--output", output_path]
-    if system_prompt:
-        cmd += ["--system-prompt", system_prompt]
-    if user_prompt_template:
-        cmd += ["--user-prompt-template", user_prompt_template]
-    if task:
-        cmd += ["--task", task]
-    if output_template:
-        cmd += ["--output-template", output_template]
-    if model:
-        cmd += ["--model", model]
-    if provider:
-        cmd += ["--provider", provider]
-    if base_url:
-        cmd += ["--base-url", base_url]
-    if chat_path:
-        cmd += ["--chat-path", chat_path]
-    if api_key_env:
-        cmd += ["--api-key-env", api_key_env]
-    if api_key_header:
-        cmd += ["--api-key-header", api_key_header]
-    if api_key_prefix is not None and str(api_key_prefix).strip() != "":
-        cmd += ["--api-key-prefix", str(api_key_prefix)]
-    if str(block_limit).isdigit():
-        cmd += ["--block-limit", str(block_limit)]
-    if temperature is not None and str(temperature).strip() != "":
-        cmd += ["--temperature", str(temperature)]
-    if str(timeout).isdigit():
-        cmd += ["--timeout", str(timeout)]
-
-    source = "llm_info_extractor.py"
-    _log_pipeline("开始执行 LLM 抽取建表", source=source)
-    result = run_subprocess(cmd, source=source)
-    _log_pipeline(
-        f"完成 LLM 抽取建表 -> {'OK' if result['ok'] else 'FAILED'}",
-        source=source,
-        level=logging.INFO if result["ok"] else logging.ERROR,
-    )
-    return jsonify(result)
+    return jsonify(execute_stage("llm", data))
 
 
 if __name__ == "__main__":
