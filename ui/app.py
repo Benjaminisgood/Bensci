@@ -14,18 +14,18 @@ from flask import Flask, jsonify, render_template, request
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = PROJECT_ROOT / ".env"
 CONFIG_OVERRIDE_PATH = Path(
-    os.getenv("BENFINDER_CONFIG_PATH", PROJECT_ROOT / "config.override.json")
+    os.getenv("BENSCI_CONFIG_PATH", PROJECT_ROOT / "config.override.json")
 )
 
-os.environ.setdefault("BENFINDER_CONFIG_PATH", str(CONFIG_OVERRIDE_PATH))
+os.environ.setdefault("BENSCI_CONFIG_PATH", str(CONFIG_OVERRIDE_PATH))
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from benfinder import config as project_config
-from benfinder.extracter_tools.providers import PROVIDER_PRESETS
-from benfinder.fetcher_tools import available_fetchers
-from benfinder.metadata_fetcher import PROVIDER_CLIENTS
-from benfinder.logging_utils import setup_file_logger
+from bensci import config as project_config
+from bensci.extracter_tools.providers import PROVIDER_PRESETS
+from bensci.fetcher_tools import available_fetchers
+from bensci.metadata_fetcher import PROVIDER_CLIENTS
+from bensci.logging_utils import setup_file_logger
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -165,7 +165,7 @@ def save_override_config(path: Path, overrides: Dict[str, Any]) -> None:
 def _base_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{PROJECT_ROOT}{os.pathsep}" + env.get("PYTHONPATH", "")
-    env["BENFINDER_CONFIG_PATH"] = str(CONFIG_OVERRIDE_PATH)
+    env["BENSCI_CONFIG_PATH"] = str(CONFIG_OVERRIDE_PATH)
     if extra:
         env.update(extra)
     return env
@@ -174,7 +174,7 @@ def _base_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 def _get_pipeline_logger() -> logging.Logger:
     global _PIPELINE_LOGGER
     if _PIPELINE_LOGGER is None:
-        _PIPELINE_LOGGER = setup_file_logger("benfinder.pipeline", PIPELINE_LOG_PATH)
+        _PIPELINE_LOGGER = setup_file_logger("bensci.pipeline", PIPELINE_LOG_PATH)
         _PIPELINE_LOGGER.propagate = False
     return _PIPELINE_LOGGER
 
@@ -216,7 +216,7 @@ def run_subprocess(
 ) -> Dict[str, Any]:
     if source:
         merged_env = dict(extra_env or {})
-        merged_env["BENFINDER_LOG_SOURCE"] = source
+        merged_env["BENSCI_LOG_SOURCE"] = source
         extra_env = merged_env
     result = subprocess.run(
         args,
@@ -355,8 +355,8 @@ def api_run_metadata():
 
     code = """
 import sys
-from benfinder import config
-from benfinder import metadata_fetcher
+from bensci import config
+from bensci import metadata_fetcher
 
 query = {query}
 max_results = int({max_results})
@@ -408,7 +408,7 @@ def api_run_filter():
     timeout = data.get("timeout")
     sleep = data.get("sleep")
 
-    cmd = [sys.executable, "-m", "benfinder.metadata_filter_utils"]
+    cmd = [sys.executable, "-m", "bensci.metadata_filter_utils"]
     if provider:
         cmd += ["--provider", provider]
     if model:
@@ -449,7 +449,7 @@ def api_run_download():
     input_csv = (data.get("input_csv") or "").strip()
     output_dir = (data.get("output_dir") or "").strip()
 
-    cmd = [sys.executable, "-m", "benfinder.literature_fetcher"]
+    cmd = [sys.executable, "-m", "bensci.literature_fetcher"]
     if input_csv:
         cmd += ["--input", input_csv]
     if output_dir:
@@ -487,7 +487,7 @@ def api_run_convert():
     ocr_paddle_use_angle_cls = (data.get("ocr_paddle_use_angle_cls") or "").strip()
     ocr_paddle_use_gpu = (data.get("ocr_paddle_use_gpu") or "").strip()
 
-    cmd = [sys.executable, "-m", "benfinder.literature_transer"]
+    cmd = [sys.executable, "-m", "bensci.literature_transer"]
     if input_path:
         cmd += ["--input", input_path]
     if output_dir:
@@ -547,7 +547,7 @@ def api_run_llm():
     system_prompt = (data.get("system_prompt") or "").strip()
     user_prompt_template = (data.get("user_prompt_template") or "").strip()
 
-    cmd = [sys.executable, "-m", "benfinder.llm_info_extractor"]
+    cmd = [sys.executable, "-m", "bensci.llm_info_extractor"]
     if input_path:
         cmd += ["--input", input_path]
     if output_path:
@@ -593,5 +593,5 @@ def api_run_llm():
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("BENFINDER_UI_PORT", "7860"))
+    port = int(os.getenv("BENSCI_UI_PORT", "7860"))
     app.run(host="127.0.0.1", port=port, debug=False)

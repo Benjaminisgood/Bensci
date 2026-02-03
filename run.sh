@@ -183,7 +183,7 @@ set_env_value() {
 python_config_value() {
   local expression="$1"
   python - <<PY
-from benfinder.config import ${expression} as value
+from bensci.config import ${expression} as value
 if value is None:
     print("")
 elif isinstance(value, (list, tuple)):
@@ -249,8 +249,8 @@ run_metadata_stage() {
 
   if python - <<PY 2>&1 | tee "${PROJECT_ROOT}/logs_metadata_fetcher.tmp"; then
 import sys
-from benfinder import config
-from benfinder import metadata_fetcher
+from bensci import config
+from bensci import metadata_fetcher
 
 query = """${search_query}"""
 max_results = int("${max_results}")
@@ -317,7 +317,7 @@ download_from_csv() {
   local provider_override="$1"
   local csv_path="$2"
   LOG_SECTION "DOWNLOAD" "根据 CSV 下载全文"
-  local cmd=(python -m benfinder.literature_fetcher)
+  local cmd=(python -m bensci.literature_fetcher)
   if [ -n "${csv_path}" ]; then
     cmd+=("--input" "${csv_path}")
   fi
@@ -333,7 +333,7 @@ download_from_csv() {
 
 convert_fulltexts() {
   LOG_SECTION "TRANSFORM" "格式转化统一（JSON/MD）"
-  if python -m benfinder.literature_transer 2>&1 | tee "${PROJECT_ROOT}/logs_literature_transer.tmp"; then
+  if python -m bensci.literature_transer 2>&1 | tee "${PROJECT_ROOT}/logs_literature_transer.tmp"; then
     echo "格式转化完成。"
   else
     echo "格式转化失败，详见 logs_literature_transer.tmp。"
@@ -345,7 +345,7 @@ run_llm_extraction() {
   LOG_SECTION "LLM" "执行 TAP 动力学信息抽取"
   local output_path
   output_path="$(python_config_value 'LLM_EXTRACTION_OUTPUT_PATH')"
-  if python -m benfinder.llm_info_extractor 2>&1 | tee "${PROJECT_ROOT}/logs_llm_extractor.tmp"; then
+  if python -m bensci.llm_info_extractor 2>&1 | tee "${PROJECT_ROOT}/logs_llm_extractor.tmp"; then
     if [ -n "${output_path}" ]; then
       echo "LLM 信息抽取完成，结果写入 ${output_path}。"
     else
@@ -359,7 +359,7 @@ run_llm_extraction() {
 
 run_metadata_filter() {
   LOG_SECTION "FILTER" "执行摘要筛选（未解基元动力学）"
-  if python -m benfinder.metadata_filter_utils 2>&1 | tee "${PROJECT_ROOT}/logs_metadata_filter.tmp"; then
+  if python -m bensci.metadata_filter_utils 2>&1 | tee "${PROJECT_ROOT}/logs_metadata_filter.tmp"; then
     echo "元数据筛选完成，结果详见 logs_metadata_filter.tmp。"
   else
     echo "元数据筛选失败，详见 logs_metadata_filter.tmp。"
@@ -387,9 +387,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from benfinder.config import ASSETS2_DIR
-from benfinder.fetcher_tools import get_fetcher  # noqa: F401
-from benfinder.literature_fetcher import guess_provider
+from bensci.config import ASSETS2_DIR
+from bensci.fetcher_tools import get_fetcher  # noqa: F401
+from bensci.literature_fetcher import guess_provider
 
 raw = os.environ.get("BENF_DOI_LIST", "")
 tokens = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
