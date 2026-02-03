@@ -15,12 +15,18 @@
   box-sizing: border-box;
 }
 
+html {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Source Serif 4", "Times New Roman", serif;
   color: var(--ink);
   background: radial-gradient(circle at top left, #fff4e6 0%, var(--paper) 40%, #f4efe6 100%);
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .bg-layer {
@@ -48,6 +54,10 @@ body {
   margin-bottom: 36px;
 }
 
+.hero > * {
+  min-width: 0;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.2em;
@@ -68,6 +78,7 @@ h1 {
   line-height: 1.6;
   color: var(--muted);
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .hero-card {
@@ -96,6 +107,7 @@ h1 {
 .hero-metric strong {
   font-size: 14px;
   word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .layout {
@@ -103,14 +115,26 @@ h1 {
   gap: 26px;
 }
 
+.layout > * {
+  min-width: 0;
+}
+
 .config-wrapper {
   display: grid;
   gap: 20px;
 }
 
+.config-wrapper > * {
+  min-width: 0;
+}
+
 .config-group {
   display: grid;
   gap: 14px;
+}
+
+.config-group > * {
+  min-width: 0;
 }
 
 .config-group-head h3 {
@@ -122,6 +146,7 @@ h1 {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .config-basics {
@@ -130,10 +155,18 @@ h1 {
   grid-template-columns: 1fr;
 }
 
+.config-basics > * {
+  min-width: 0;
+}
+
 .config-grid {
   display: grid;
   gap: 18px;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.config-grid > * {
+  min-width: 0;
 }
 
 .config-header {
@@ -150,6 +183,7 @@ h1 {
   margin: 0 0 4px;
   color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .panel {
@@ -160,6 +194,7 @@ h1 {
   box-shadow: var(--shadow);
   backdrop-filter: blur(4px);
   animation: rise 0.6s ease both;
+  min-width: 0;
 }
 
 .pipeline {
@@ -177,6 +212,7 @@ h1 {
   margin: 0 0 16px;
   color: var(--muted);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .pipeline .panel-head p {
@@ -222,15 +258,20 @@ h1 {
   align-items: center;
   font-family: "Space Grotesk", sans-serif;
   animation: slideIn 0.35s ease both;
+  min-width: 0;
 }
 
 .queue-item span {
   font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .queue-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .queue-actions button {
@@ -246,6 +287,11 @@ h1 {
   align-items: center;
   gap: 16px;
   margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.pipeline-actions > * {
+  min-width: 0;
 }
 
 button {
@@ -320,6 +366,9 @@ button.run-btn {
   overflow: auto;
   font-size: 12px;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .log-controls {
@@ -327,11 +376,16 @@ button.run-btn {
   align-items: flex-end;
   gap: 12px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.log-controls > * {
+  min-width: 0;
 }
 
 .log-controls .log-filter {
-  flex: 1;
-  min-width: 160px;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 .log-status {
@@ -343,6 +397,7 @@ button.run-btn {
   line-height: 1.5;
   white-space: pre-line;
   margin-bottom: 10px;
+  overflow-wrap: anywhere;
 }
 
 .config-section {
@@ -359,6 +414,11 @@ button.run-btn {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.section-head > * {
+  min-width: 0;
 }
 
 .section-head h3 {
@@ -370,11 +430,13 @@ button.run-btn {
   margin: 0;
   font-size: 12px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .section-block {
   display: grid;
   gap: 12px;
+  min-width: 0;
 }
 
 .section-subhead {
@@ -382,6 +444,11 @@ button.run-btn {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section-subhead > * {
+  min-width: 0;
 }
 
 .section-subhead h4 {
@@ -394,6 +461,10 @@ button.run-btn {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.inline-actions > * {
+  min-width: 0;
 }
 
 .divider {
@@ -439,9 +510,17 @@ textarea {
   gap: 14px;
 }
 
+.row > * {
+  min-width: 0;
+}
+
 .stack {
   display: grid;
   gap: 10px;
+}
+
+.stack > * {
+  min-width: 0;
 }
 
 .env-row {
@@ -449,6 +528,10 @@ textarea {
   grid-template-columns: 1fr 1.4fr auto;
   gap: 10px;
   align-items: center;
+}
+
+.env-row > * {
+  min-width: 0;
 }
 
 .env-row button {
@@ -519,6 +602,7 @@ textarea {
   font-size: 12px;
   color: var(--muted);
   margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 
 details.advanced {
@@ -563,6 +647,16 @@ details.advanced summary {
   }
 
   .config-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .env-row {
     grid-template-columns: 1fr;
   }
 }
