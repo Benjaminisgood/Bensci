@@ -1,0 +1,37 @@
+.env
+.env.*
+*.env
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# OS / editor junk files
+.DS_Store
+.idea/
+.vscode/
+*.pyc
+config.cpython-*.pyc
+
+
+# Project outputs and runtime data
+data_resourse/
+*.log
+*.tmp
+logs_*.tmp
+
+# Notebook checkpoints
+.ipynb_checkpoints/

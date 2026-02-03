@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SciEssayFinder 控制台</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="bg-layer"></div>
+    <div class="app">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">SciEssayFinder · Research Ops Console</p>
+          <h1>一条队列跑完检索、筛选、下载与 LLM 制表。</h1>
+          <p class="lead">
+            先把步骤排好，再为每一步配参数。系统会自动隐藏无关设置，
+            让你只看到当前任务需要的内容。
+          </p>
+        </div>
+        <div class="hero-card">
+          <div class="hero-metric">
+            <span>项目路径</span>
+            <strong id="projectRoot">--</strong>
+          </div>
+          <div class="hero-metric">
+            <span>ENV 文件</span>
+            <strong id="envPath">--</strong>
+          </div>
+          <div class="hero-metric">
+            <span>Override 文件</span>
+            <strong id="overridePath">--</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel pipeline">
+          <div class="panel-head">
+            <h2>执行队列</h2>
+            <p>点击阶段卡片，即可按顺序排队执行。</p>
+          </div>
+          <div class="step-bank" id="stepBank">
+            <button class="step-btn" data-step="metadata">+ 元数据聚合</button>
+            <button class="step-btn" data-step="filter">+ 摘要筛选</button>
+            <button class="step-btn" data-step="download">+ 下载全文</button>
+            <button class="step-btn" data-step="convert">+ 格式转化统一</button>
+            <button class="step-btn" data-step="llm">+ LLM 抽取建表</button>
+          </div>
+
+          <div class="queue" id="pipelineQueue"></div>
+
+          <div class="pipeline-actions">
+            <button id="runPipeline" class="primary">运行队列</button>
+            <div class="toggle">
+              <input type="checkbox" id="stopOnError" checked />
+              <label for="stopOnError">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">遇错停止</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="panel-head">
+            <h3>运行日志</h3>
+            <p>所有流程日志统一展示，可按来源筛选。</p>
+          </div>
+          <div class="log-controls">
+            <div class="log-filter">
+              <label>日志来源</label>
+              <select id="logSource"></select>
+            </div>
+            <button id="refreshLog" class="ghost">刷新日志</button>
+          </div>
+          <div id="pipelineStatus" class="log-status"></div>
+          <pre id="pipelineLog" class="log"></pre>
+        </section>
+
+        <section class="config-wrapper">
+          <div class="config-header">
+            <h2>配置中心</h2>
+            <p>只展示当前队列需要的配置区域，未使用的设置自动折叠隐藏。</p>
+          </div>
+
+          <section class="panel config-section" data-config="env" data-always="true">
+            <div class="section-head">
+              <div>
+                <h3>API / Env</h3>
+                <p class="section-desc">统一管理 API Key 与环境变量。</p>
+              </div>
+              <button id="addEnv">新增变量</button>
+            </div>
+            <div id="envList" class="stack"></div>
+            <button id="saveEnv" class="secondary">保存 ENV</button>
+          </section>
+
+          <section class="panel config-section" data-config="metadata,filter,download,convert,llm">
+            <div class="section-head">
+              <div>
+                <h3>输入 / 输出路径</h3>
+                <p class="section-desc">定义数据目录与默认文件路径（写入 Override）。</p>
+              </div>
+              <button id="savePaths" class="secondary">保存路径</button>
+            </div>
+            <div class="row">
+              <div>
+                <label>元数据 CSV</label>
+                <input id="pathMetadataCsv" type="text" />
+              </div>
+              <div>
+                <label>筛选后 CSV</label>
+                <input id="pathFilteredCsv" type="text" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>下载输出目录</label>
+                <input id="pathAssets2" type="text" />
+              </div>
+              <div>
+                <label>转化输入路径</label>
+                <input id="pathXmlSource" type="text" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>转化输出路径</label>
+                <input id="pathBlocksOutput" type="text" />
+              </div>
+              <div>
+                <label>LLM 输出 CSV</label>
+                <input id="pathLlmOutput" type="text" />
+              </div>
+            </div>
+          </section>
+
+          <section class="panel config-section" data-config="metadata">
+            <div class="section-head">
+              <div>
+                <h3>元数据检索</h3>
+                <p class="section-desc">配置检索关键词与元数据来源。</p>
+              </div>
+              <button data-run="metadata" class="run-btn">立即执行</button>
+            </div>
+            <label>检索关键词</label>
+            <textarea id="metadataQuery" rows="3"></textarea>
+            <div class="row">
+              <div>
+                <label>最大条数</label>
+                <input id="metadataMax" type="number" min="1" />
+              </div>
+              <div>
+                <label>Provider 限定（多选）</label>
+                <select id="metadataProviders" multiple></select>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel config-section" data-config="filter">
+            <div class="section-head">
+              <div>
+                <h3>摘要筛选</h3>
+                <p class="section-desc">选择用于筛选摘要的 LLM。</p>
+              </div>
+              <button data-run="filter" class="run-btn">立即执行</button>
+            </div>
+            <div class="row">
+              <div>
+                <label>LLM Provider</label>
+                <select id="filterProvider"></select>
+              </div>
+              <div>
+                <label>LLM 模型</label>
+                <input id="filterModel" type="text" />
+              </div>
+            </div>
+          </section>
+
+          <section class="panel config-section" data-config="download">
+            <div class="section-head">
+              <div>
+                <h3>下载全文</h3>
+                <p class="section-desc">可直接 DOI 下载或使用 CSV。</p>
+              </div>
+              <button data-run="download" class="run-btn">立即执行</button>
+            </div>
+            <label>下载 Provider</label>
+            <select id="downloadProvider"></select>
+            <label>DOI 列表（可选，逗号/空格分隔）</label>
+            <textarea id="downloadDoi" rows="2"></textarea>
+            <div class="row">
+              <div>
+                <label>CSV 输入路径</label>
+                <input id="downloadCsv" type="text" />
+              </div>
+              <div>
+                <label>输出目录</label>
+                <input id="downloadOutput" type="text" />
+              </div>
+            </div>
+            <button id="useFiltered" class="ghost">改用筛选后的 CSV</button>
+          </section>
+
+          <section class="panel config-section" data-config="convert">
+            <div class="section-head">
+              <div>
+                <h3>格式转化统一</h3>
+                <p class="section-desc">解析 XML/HTML/PDF 并输出 JSON/MD。</p>
+              </div>
+              <button data-run="convert" class="run-btn">立即执行</button>
+            </div>
+            <div class="row">
+              <div>
+                <label>输入路径</label>
+                <input id="convertInput" type="text" />
+              </div>
+              <div>
+                <label>输出目录</label>
+                <input id="convertOutput" type="text" />
+              </div>
+              <div>
+                <label>输出格式</label>
+                <select id="convertFormat">
+                  <option value="json">json</option>
+                  <option value="md">md</option>
+                  <option value="both">both</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel config-section" data-config="convert">
+            <div class="section-head">
+              <div>
+                <h3>PDF OCR 高级设置</h3>
+                <p class="section-desc">多引擎 OCR 与预处理选项。</p>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>OCR 预设</label>
+                <select id="ocrPreset"></select>
+              </div>
+              <div>
+                <label>OCR 引擎</label>
+                <select id="ocrEngine">
+                  <option value="auto">auto</option>
+                  <option value="paddle">paddle</option>
+                  <option value="easyocr">easyocr</option>
+                  <option value="rapidocr">rapidocr</option>
+                  <option value="tesseract">tesseract</option>
+                  <option value="pypdf2">pypdf2</option>
+                </select>
+              </div>
+              <div>
+                <label>OCR 语言</label>
+                <input id="ocrLang" type="text" placeholder="eng / chi_sim / en / ch" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>DPI</label>
+                <input id="ocrDpi" type="number" min="100" />
+              </div>
+              <div>
+                <label>预处理</label>
+                <select id="ocrPreprocess">
+                  <option value="none">none</option>
+                  <option value="grayscale">grayscale</option>
+                  <option value="binarize">binarize</option>
+                  <option value="sharpen">sharpen</option>
+                </select>
+              </div>
+            </div>
+            <label>Tesseract 额外参数</label>
+            <input id="ocrTesseractConfig" type="text" placeholder="--psm 6" />
+            <div class="row">
+              <div>
+                <label>EasyOCR 语言</label>
+                <input id="ocrEasyocrLangs" type="text" placeholder="en,ch_sim" />
+              </div>
+              <div>
+                <label>EasyOCR 使用 GPU</label>
+                <select id="ocrEasyocrGpu">
+                  <option value="">默认</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>PaddleOCR 语言</label>
+                <input id="ocrPaddleLang" type="text" placeholder="en / ch" />
+              </div>
+              <div>
+                <label>PaddleOCR 方向分类</label>
+                <select id="ocrPaddleAngle">
+                  <option value="">默认</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>PaddleOCR 使用 GPU</label>
+                <select id="ocrPaddleGpu">
+                  <option value="">默认</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </div>
+            </div>
+            <p class="hint">这些设置会随“格式转化统一”步骤一并传入 OCR。</p>
+          </section>
+
+          <section class="panel config-section" data-config="llm">
+            <div class="section-head">
+              <div>
+                <h3>LLM 抽取建表</h3>
+                <p class="section-desc">自由定义表头与抽取任务。</p>
+              </div>
+              <button data-run="llm" class="run-btn">立即执行</button>
+            </div>
+            <div class="row">
+              <div>
+                <label>抽取预设</label>
+                <select id="llmPreset"></select>
+              </div>
+              <div>
+                <label>任务说明</label>
+                <textarea id="llmTask" rows="3" placeholder="例如：请输出主客体常数、反应物、晶形等字段"></textarea>
+              </div>
+            </div>
+            <label>输出模板 JSON</label>
+            <textarea id="llmOutputTemplate" rows="6" spellcheck="false"></textarea>
+            <p class="hint">模板是一个 JSON 对象：{"field": "中文说明"}，决定最终表格列。</p>
+            <div class="row">
+              <div>
+                <label>输入路径</label>
+                <input id="llmInput" type="text" />
+              </div>
+              <div>
+                <label>输出 CSV</label>
+                <input id="llmOutput" type="text" />
+              </div>
+            </div>
+            <p class="hint">支持 md / pdf / json 作为输入文件或目录。</p>
+            <div class="row">
+              <div>
+                <label>Provider</label>
+                <select id="llmProvider"></select>
+              </div>
+              <div>
+                <label>模型</label>
+                <input id="llmModel" type="text" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Base URL</label>
+                <input id="llmBaseUrl" type="text" />
+              </div>
+              <div>
+                <label>Chat Path</label>
+                <input id="llmChatPath" type="text" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>API Key Env</label>
+                <input id="llmKeyEnv" type="text" />
+              </div>
+              <div>
+                <label>API Key Header</label>
+                <input id="llmKeyHeader" type="text" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>API Key Prefix</label>
+                <input id="llmKeyPrefix" type="text" />
+              </div>
+              <div>
+                <label>Block Limit</label>
+                <input id="llmBlockLimit" type="number" min="1" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Temperature</label>
+                <input id="llmTemperature" type="number" step="0.01" />
+              </div>
+              <div>
+                <label>Timeout</label>
+                <input id="llmTimeout" type="number" min="1" />
+              </div>
+            </div>
+          </section>
+
+          <section class="panel config-section" data-config="override" data-always="true">
+            <div class="section-head">
+              <div>
+                <h3>JSON Override</h3>
+                <p class="section-desc">高级参数写入 config.override.json。</p>
+              </div>
+              <button id="saveOverride" class="secondary">保存 Override</button>
+            </div>
+            <textarea id="overrideJson" rows="8" spellcheck="false"></textarea>
+            <p class="hint">保存后会写入 config.override.json，并在下一次任务调用时生效。</p>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
