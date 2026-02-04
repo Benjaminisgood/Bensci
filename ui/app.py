@@ -66,6 +66,8 @@ CONFIG_KEYS = [
     "METADATA_FILTER_TEMPERATURE",
     "METADATA_FILTER_TIMEOUT",
     "METADATA_FILTER_SLEEP_SECONDS",
+    "METADATA_FILTER_SYSTEM_PROMPT",
+    "METADATA_FILTER_USER_PROMPT_TEMPLATE",
     "OCR_ENGINE",
     "OCR_ENGINE_PRIORITY",
     "OCR_LANG",
@@ -364,6 +366,8 @@ def _run_filter_stage(params: Dict[str, Any]) -> Dict[str, Any]:
     temperature = _coerce_float(params.get("temperature"))
     timeout = _coerce_int(params.get("timeout"))
     sleep = _coerce_float(params.get("sleep"))
+    system_prompt = (params.get("system_prompt") or "").strip()
+    user_prompt_template = (params.get("user_prompt_template") or "").strip()
     input_csv = (params.get("input_csv") or "").strip()
     output_csv = (params.get("output_csv") or "").strip()
 
@@ -396,6 +400,11 @@ api_key_prefix = {api_key_prefix}
 temperature = {temperature}
 timeout = {timeout}
 sleep_seconds = {sleep_seconds}
+system_prompt = {system_prompt}
+user_prompt_template = {user_prompt_template}
+
+system_prompt = (system_prompt or "").strip() or None
+user_prompt_template = (user_prompt_template or "").strip() or None
 
 provider = (provider or "").strip() or mf.DEFAULT_PROVIDER
 model = (model or "").strip() or mf.DEFAULT_MODEL
@@ -423,6 +432,8 @@ count = mf.filter_metadata(
     temperature=temperature,
     timeout=timeout,
     sleep_seconds=sleep_seconds,
+    system_prompt=system_prompt,
+    user_prompt_template=user_prompt_template,
 )
 print("filter_passed=", count)
 """.format(
@@ -438,6 +449,8 @@ print("filter_passed=", count)
         temperature=repr(temperature),
         timeout=repr(timeout),
         sleep_seconds=repr(sleep),
+        system_prompt=repr(system_prompt),
+        user_prompt_template=repr(user_prompt_template),
     )
 
     return run_python_snippet(code, source="metadata_filter_utils.py")

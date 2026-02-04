@@ -193,7 +193,7 @@
                     <input id="metadataMax" type="number" min="1" />
                   </div>
                   <div>
-                    <label>Provider 限定（多选）</label>
+                    <label>Provider 限定（支持多选）</label>
                     <select id="metadataProviders" multiple></select>
                   </div>
                 </div>
@@ -226,6 +226,11 @@
                     <input id="filterModel" type="text" />
                   </div>
                 </div>
+                <label>System Prompt</label>
+                <textarea id="filterSystemPrompt" rows="4" spellcheck="false"></textarea>
+                <label>User Prompt 模板</label>
+                <textarea id="filterUserPrompt" rows="5" spellcheck="false"></textarea>
+                <p class="hint">提示：可使用 {abstract} 占位符。</p>
                 <div class="row">
                   <div>
                     <label>输入 CSV</label>

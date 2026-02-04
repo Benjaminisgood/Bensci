@@ -149,6 +149,15 @@ const llmPresets = [
 const pipelineQueue = [];
 const removedEnvKeys = new Set();
 const statusBuffer = [];
+const LOG_POLL_INTERVAL_MS = 1000;
+const logStreamState = {
+  running: false,
+  pending: false,
+  timer: null,
+  lastLine: null,
+  source: "__all__",
+  minTimestamp: null,
+};
 
 const logEl = document.getElementById("pipelineLog");
 const logSourceEl = document.getElementById("logSource");
@@ -182,6 +191,8 @@ const metadataProvidersEl = document.getElementById("metadataProviders");
 
 const filterModelEl = document.getElementById("filterModel");
 const filterProviderEl = document.getElementById("filterProvider");
+const filterSystemPromptEl = document.getElementById("filterSystemPrompt");
+const filterUserPromptEl = document.getElementById("filterUserPrompt");
 
 const downloadProviderEl = document.getElementById("downloadProvider");
 const downloadDoiEl = document.getElementById("downloadDoi");
@@ -258,6 +269,112 @@ async function apiPost(path, payload) {
   return res.json();
 }
 
+function parseLogTimestamp(line) {
+  const match = line.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}),(\d{3})/);
+  if (!match) return null;
+  const stamp = `${match[1]}T${match[2]}.${match[3]}`;
+  const date = new Date(stamp);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+function filterLogLines(lines) {
+  const minTimestamp = logStreamState.minTimestamp;
+  if (!minTimestamp) return lines;
+  return lines.filter((line) => {
+    const ts = parseLogTimestamp(line);
+    if (!ts) return true;
+    return ts >= minTimestamp;
+  });
+}
+
+async function fetchLogs({ source, limit = 2000 } = {}) {
+  const params = new URLSearchParams();
+  if (source && source !== "__all__") {
+    params.set("source", source);
+  }
+  if (limit) {
+    params.set("limit", String(limit));
+  }
+  const query = params.toString();
+  return apiGet(query ? `/api/logs?${query}` : "/api/logs");
+}
+
+function clearLogView() {
+  if (!logEl) return;
+  logEl.textContent = "";
+  logEl.scrollTop = 0;
+}
+
+function appendLogLines(lines) {
+  if (!logEl || !lines.length) return;
+  const current = logEl.textContent;
+  const text = lines.join("\n");
+  logEl.textContent = current ? `${current}\n${text}` : text;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function getNewLogLines(lines) {
+  if (!logStreamState.lastLine) {
+    return lines;
+  }
+  const idx = lines.lastIndexOf(logStreamState.lastLine);
+  if (idx === -1) {
+    return lines;
+  }
+  return lines.slice(idx + 1);
+}
+
+async function pollLogStream() {
+  if (!logStreamState.running || logStreamState.pending || !logEl) return;
+  logStreamState.pending = true;
+  try {
+    const data = await fetchLogs({ source: logStreamState.source, limit: 2000 });
+    updateLogSources(data.sources || [], logStreamState.source);
+    const filtered = filterLogLines(data.lines || []);
+    const newLines = getNewLogLines(filtered);
+    appendLogLines(newLines);
+    if (filtered.length) {
+      logStreamState.lastLine = filtered[filtered.length - 1];
+    }
+  } catch (err) {
+    appendLog(`日志刷新失败: ${err.message}`);
+  } finally {
+    logStreamState.pending = false;
+  }
+}
+
+async function startLogStream({ reset = false } = {}) {
+  if (!logEl) return;
+  stopLogStream();
+  logStreamState.running = true;
+  logStreamState.pending = false;
+  logStreamState.source = logSourceEl ? logSourceEl.value : "__all__";
+  logStreamState.lastLine = null;
+  if (reset) {
+    clearLogView();
+  } else {
+    const data = await fetchLogs({ source: logStreamState.source, limit: 2000 });
+    updateLogSources(data.sources || [], logStreamState.source);
+    const filtered = filterLogLines(data.lines || []);
+    logEl.textContent = filtered.join("\n");
+    logEl.scrollTop = logEl.scrollHeight;
+    if (filtered.length) {
+      logStreamState.lastLine = filtered[filtered.length - 1];
+    }
+  }
+  await pollLogStream();
+  logStreamState.timer = setInterval(pollLogStream, LOG_POLL_INTERVAL_MS);
+}
+
+function stopLogStream() {
+  if (logStreamState.timer) {
+    clearInterval(logStreamState.timer);
+    logStreamState.timer = null;
+  }
+  logStreamState.running = false;
+  logStreamState.pending = false;
+}
+
 function updateLogSources(sources, selected) {
   if (!logSourceEl) return;
   const current = selected || logSourceEl.value || "__all__";
@@ -281,17 +398,15 @@ function updateLogSources(sources, selected) {
 
 async function loadLogs() {
   if (!logEl) return;
-  const params = new URLSearchParams();
   const selected = logSourceEl ? logSourceEl.value : "__all__";
-  if (selected && selected !== "__all__") {
-    params.set("source", selected);
-  }
-  params.set("limit", "2000");
-  const query = params.toString();
-  const data = await apiGet(query ? `/api/logs?${query}` : "/api/logs");
+  const data = await fetchLogs({ source: selected, limit: 2000 });
   updateLogSources(data.sources || [], selected);
-  logEl.textContent = (data.lines || []).join("\n");
+  const filtered = filterLogLines(data.lines || []);
+  logEl.textContent = filtered.join("\n");
   logEl.scrollTop = logEl.scrollHeight;
+  if (filtered.length) {
+    logStreamState.lastLine = filtered[filtered.length - 1];
+  }
 }
 
 function renderQueue() {
@@ -654,6 +769,8 @@ function collectUiSnapshot() {
       model: filterModelEl.value.trim(),
       input_csv: filterInputEl.value.trim(),
       output_csv: filterOutputEl.value.trim(),
+      system_prompt: filterSystemPromptEl ? filterSystemPromptEl.value.trim() : "",
+      user_prompt_template: filterUserPromptEl ? filterUserPromptEl.value.trim() : "",
     },
     download: {
       provider: downloadProviderEl.value,
@@ -733,6 +850,8 @@ async function runStage(stage) {
       model: filterModelEl.value.trim(),
       input_csv: filterInputEl.value.trim(),
       output_csv: filterOutputEl.value.trim(),
+      system_prompt: filterSystemPromptEl ? filterSystemPromptEl.value.trim() : "",
+      user_prompt_template: filterUserPromptEl ? filterUserPromptEl.value.trim() : "",
     };
   } else if (stage === "download") {
     payload = {
@@ -793,7 +912,11 @@ async function runStage(stage) {
 
   const result = await apiPost("/api/run", { stage, params: payload });
   try {
-    await loadLogs();
+    if (logStreamState.running) {
+      await pollLogStream();
+    } else {
+      await loadLogs();
+    }
   } catch (err) {
     appendLog(`日志刷新失败: ${err.message}`);
   }
@@ -857,6 +980,12 @@ async function init() {
   ensureOption(filterProviderEl, cachedConfig.METADATA_FILTER_PROVIDER);
   filterProviderEl.value = cachedConfig.METADATA_FILTER_PROVIDER || "";
   filterModelEl.value = cachedConfig.METADATA_FILTER_MODEL || "";
+  if (filterSystemPromptEl) {
+    filterSystemPromptEl.value = cachedConfig.METADATA_FILTER_SYSTEM_PROMPT || "";
+  }
+  if (filterUserPromptEl) {
+    filterUserPromptEl.value = cachedConfig.METADATA_FILTER_USER_PROMPT_TEMPLATE || "";
+  }
 
   populatePresetSelect(ocrPresetEl, ocrPresets);
   ocrPresetEl.value = "custom";
@@ -999,19 +1128,26 @@ runPipelineBtn.addEventListener("click", async () => {
   }
   runPipelineBtn.disabled = true;
   appendLog("开始执行队列...");
-  for (const step of pipelineQueue) {
-    try {
-      const result = await runStage(step);
-      if (!result.ok && stopOnErrorEl.checked) {
-        appendLog("遇到错误，已停止队列。");
-        break;
-      }
-    } catch (err) {
-      appendLog(`执行异常: ${err.message}`);
-      if (stopOnErrorEl.checked) {
-        break;
+  logStreamState.minTimestamp = Date.now();
+  await startLogStream({ reset: true });
+  try {
+    for (const step of pipelineQueue) {
+      try {
+        const result = await runStage(step);
+        if (!result.ok && stopOnErrorEl.checked) {
+          appendLog("遇到错误，已停止队列。");
+          break;
+        }
+      } catch (err) {
+        appendLog(`执行异常: ${err.message}`);
+        if (stopOnErrorEl.checked) {
+          break;
+        }
       }
     }
+  } finally {
+    await pollLogStream();
+    stopLogStream();
   }
   appendLog("队列执行结束。");
   runPipelineBtn.disabled = false;
@@ -1172,12 +1308,23 @@ document.getElementById("useFiltered").addEventListener("click", () => {
 
 if (logSourceEl) {
   logSourceEl.addEventListener("change", () => {
-    loadLogs().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    if (logStreamState.running) {
+      logStreamState.source = logSourceEl.value;
+      logStreamState.lastLine = null;
+      clearLogView();
+      pollLogStream().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    } else {
+      loadLogs().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    }
   });
 }
 if (logRefreshBtn) {
   logRefreshBtn.addEventListener("click", () => {
-    loadLogs().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    if (logStreamState.running) {
+      pollLogStream().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    } else {
+      loadLogs().catch((err) => appendLog(`日志刷新失败: ${err.message}`));
+    }
   });
 }
 

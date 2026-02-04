@@ -55,26 +55,32 @@ DEFAULT_SLEEP_SECONDS = float(getattr(project_config, "METADATA_FILTER_SLEEP_SEC
 
 _PROMPTS = getattr(project_config, "LLM_PROMPTS", {})
 _FILTER_PROMPTS: Dict[str, str] = _PROMPTS.get("metadata_filter", {})
-METADATA_FILTER_SYSTEM_PROMPT: str = _FILTER_PROMPTS.get(
-    "system_prompt",
-    (
-        "你是一名催化文献分析助手，负责判断摘要是否满足筛选条件："
-        "1) 明确涉及能源小分子催化反应；"
-        "2) 指出存在未解决的基元反应动力学/机理问题；"
-        "3) 摘要中至少能推断出具体反应体系或反应类型。"
-        "请只回答 YES 或 NO。"
-    ),
+METADATA_FILTER_SYSTEM_PROMPT: str = (
+    getattr(project_config, "METADATA_FILTER_SYSTEM_PROMPT", None)
+    or _FILTER_PROMPTS.get(
+        "system_prompt",
+        (
+            "你是一名催化文献分析助手，负责判断摘要是否满足筛选条件："
+            "1) 明确涉及能源小分子催化反应；"
+            "2) 指出存在未解决的基元反应动力学/机理问题；"
+            "3) 摘要中至少能推断出具体反应体系或反应类型。"
+            "请只回答 YES 或 NO。"
+        ),
+    )
 )
-METADATA_FILTER_USER_TEMPLATE: str = _FILTER_PROMPTS.get(
-    "user_prompt_template",
-    (
-        "判断以下摘要是否满足筛选条件：\n"
-        "- 能源小分子催化反应；\n"
-        "- 指出未解决的基元反应动力学/机理问题；\n"
-        "- 可推断具体反应体系或反应类型。\n"
-        "只回答 YES 或 NO。\n"
-        "摘要：{abstract}"
-    ),
+METADATA_FILTER_USER_TEMPLATE: str = (
+    getattr(project_config, "METADATA_FILTER_USER_PROMPT_TEMPLATE", None)
+    or _FILTER_PROMPTS.get(
+        "user_prompt_template",
+        (
+            "判断以下摘要是否满足筛选条件：\n"
+            "- 能源小分子催化反应；\n"
+            "- 指出未解决的基元反应动力学/机理问题；\n"
+            "- 可推断具体反应体系或反应类型。\n"
+            "只回答 YES 或 NO。\n"
+            "摘要：{abstract}"
+        ),
+    )
 )
 
 
@@ -87,6 +93,7 @@ def _build_client(
     api_key_env: Optional[str],
     api_key_header: Optional[str],
     api_key_prefix: Optional[str],
+    system_prompt: str,
     temperature: float,
     timeout: int,
 ) -> LLMClient:
@@ -101,13 +108,18 @@ def _build_client(
     return LLMClient(
         settings=settings,
         model=model,
-        system_prompt=METADATA_FILTER_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         temperature=temperature,
         timeout=timeout,
     )
 
 
-def _filter_with_llm(rows: List[dict], client: LLMClient, sleep_seconds: float) -> List[dict]:
+def _filter_with_llm(
+    rows: List[dict],
+    client: LLMClient,
+    sleep_seconds: float,
+    user_prompt_template: str,
+) -> List[dict]:
     """遍历元数据列表，使用 LLM 判断是否保留。"""
     passed: List[dict] = []
 
@@ -117,7 +129,7 @@ def _filter_with_llm(rows: List[dict], client: LLMClient, sleep_seconds: float) 
             LOGGER.debug("记录 #%d 缺少摘要，默认跳过：%s", idx, row.get("title"))
             continue
 
-        prompt = METADATA_FILTER_USER_TEMPLATE.format(abstract=abstract)
+        prompt = user_prompt_template.format(abstract=abstract)
         try:
             reply = client.generate(prompt).strip().upper()
         except Exception as exc:  # noqa: BLE001
@@ -146,6 +158,8 @@ def filter_metadata(
     temperature: float = DEFAULT_TEMPERATURE,
     timeout: int = DEFAULT_TIMEOUT,
     sleep_seconds: float = DEFAULT_SLEEP_SECONDS,
+    system_prompt: Optional[str] = None,
+    user_prompt_template: Optional[str] = None,
 ) -> int:
     """执行初筛并写入新的 CSV，返回通过的条目数。"""
     if not SOURCE_CSV.exists():
@@ -159,6 +173,11 @@ def filter_metadata(
         LOGGER.warning("元数据文件为空：%s", SOURCE_CSV)
         return 0
 
+    resolved_system_prompt = (system_prompt or "").strip() or METADATA_FILTER_SYSTEM_PROMPT
+    resolved_user_template = (
+        (user_prompt_template or "").strip() or METADATA_FILTER_USER_TEMPLATE
+    )
+
     client = _build_client(
         provider=provider,
         model=model,
@@ -167,6 +186,7 @@ def filter_metadata(
         api_key_env=api_key_env,
         api_key_header=api_key_header,
         api_key_prefix=api_key_prefix,
+        system_prompt=resolved_system_prompt,
         temperature=temperature,
         timeout=timeout,
     )
@@ -180,7 +200,7 @@ def filter_metadata(
         TARGET_CSV.write_text(SOURCE_CSV.read_text(encoding="utf-8"), encoding="utf-8")
         return len(rows)
 
-    passed = _filter_with_llm(rows, client, sleep_seconds)
+    passed = _filter_with_llm(rows, client, sleep_seconds, resolved_user_template)
 
     ASSETS1_DIR.mkdir(parents=True, exist_ok=True)
     with TARGET_CSV.open("w", encoding="utf-8", newline="") as f:
@@ -204,6 +224,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help="temperature")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="HTTP 超时秒数")
     parser.add_argument("--sleep", type=float, default=DEFAULT_SLEEP_SECONDS, help="请求间隔秒数")
+    parser.add_argument("--system-prompt", default=None, help="覆盖 system prompt")
+    parser.add_argument(
+        "--user-prompt-template",
+        default=None,
+        help="覆盖 user prompt 模板（可包含 {abstract}）",
+    )
     return parser
 
 
@@ -222,6 +248,8 @@ def main() -> None:
             temperature=args.temperature,
             timeout=args.timeout,
             sleep_seconds=args.sleep,
+            system_prompt=args.system_prompt,
+            user_prompt_template=args.user_prompt_template,
         )
         if count == 0:
             LOGGER.info("没有任何记录通过初筛。")

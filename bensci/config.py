@@ -193,6 +193,23 @@ METADATA_FILTER_TEMPERATURE = 0.0
 METADATA_FILTER_TIMEOUT = 60
 METADATA_FILTER_SLEEP_SECONDS = 1.0
 
+# ---------- LLM 摘要筛选提示词 ----------
+METADATA_FILTER_SYSTEM_PROMPT = (
+    "你是一名催化文献分析助手，负责判断摘要是否满足筛选条件："
+    "1) 明确涉及能源小分子催化反应；"
+    "2) 指出存在未解决的基元反应动力学/机理问题；"
+    "3) 摘要中至少能推断出具体反应体系或反应类型。"
+    "请只回答 YES 或 NO。"
+)
+METADATA_FILTER_USER_PROMPT_TEMPLATE = (
+    "判断以下摘要是否满足筛选条件：\n"
+    "- 能源小分子催化反应；\n"
+    "- 指出未解决的基元反应动力学/机理问题；\n"
+    "- 可推断具体反应体系或反应类型。\n"
+    "只回答 YES 或 NO。\n"
+    "摘要：{abstract}"
+)
+
 # ---------- 关键词配置 ----------
 # KEYWORD_GROUPS 决定元数据筛查/抽取阶段要重点关注的术语及其语义角色。
 # 每个分组的元数据含义：
@@ -398,21 +415,8 @@ LLM_PROMPTS = {
         ),
     },
     "metadata_filter": {
-        "system_prompt": (
-            "你是一名催化文献分析助手，负责判断摘要是否满足筛选条件："
-            "1) 明确涉及能源小分子催化反应；"
-            "2) 指出存在未解决的基元反应动力学/机理问题；"
-            "3) 摘要中至少能推断出具体反应体系或反应类型。"
-            "请只回答 YES 或 NO。"
-        ),
-        "user_prompt_template": (
-            "判断以下摘要是否满足筛选条件：\n"
-            "- 能源小分子催化反应；\n"
-            "- 指出未解决的基元反应动力学/机理问题；\n"
-            "- 可推断具体反应体系或反应类型。\n"
-            "只回答 YES 或 NO。\n"
-            "摘要：{abstract}"
-        ),
+        "system_prompt": METADATA_FILTER_SYSTEM_PROMPT,
+        "user_prompt_template": METADATA_FILTER_USER_PROMPT_TEMPLATE,
     },
 }
 
