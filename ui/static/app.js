@@ -198,6 +198,9 @@ const downloadProviderEl = document.getElementById("downloadProvider");
 const downloadDoiEl = document.getElementById("downloadDoi");
 const downloadCsvEl = document.getElementById("downloadCsv");
 const downloadOutputEl = document.getElementById("downloadOutput");
+const downloadPriorityListEl = document.getElementById("downloadPriorityList");
+const downloadPrioritySaveBtn = document.getElementById("downloadPrioritySave");
+const downloadPriorityResetBtn = document.getElementById("downloadPriorityReset");
 
 const convertInputEl = document.getElementById("convertInput");
 const convertOutputEl = document.getElementById("convertOutput");
@@ -240,6 +243,7 @@ let cachedEnv = {};
 let cachedPaths = {};
 let cachedStageDefaults = {};
 let llmProviderPresets = {};
+let downloadProviders = [];
 
 function appendLog(text) {
   const timestamp = new Date().toLocaleTimeString();
@@ -513,6 +517,194 @@ function collectEnvUpdates() {
     }
   });
   return updates;
+}
+
+function getDownloadProviderMeta(provider) {
+  const key = (provider || "").toLowerCase();
+  if (key === "elsevier") {
+    return { requiredEnv: "ELSEVIER_API_KEY", optionalEnv: null, label: "Elsevier" };
+  }
+  if (key === "springer") {
+    return { requiredEnv: "SPRINGER_OPEN_ACCESS_KEY", optionalEnv: null, label: "Springer" };
+  }
+  if (key === "acs") {
+    return { requiredEnv: null, optionalEnv: "ACS_API_KEY", label: "ACS" };
+  }
+  if (key === "wiley") {
+    return { requiredEnv: null, optionalEnv: null, label: "Wiley" };
+  }
+  if (key === "rsc") {
+    return { requiredEnv: null, optionalEnv: null, label: "RSC" };
+  }
+  if (key === "scihub") {
+    return { requiredEnv: null, optionalEnv: null, label: "Sci-Hub" };
+  }
+  return { requiredEnv: null, optionalEnv: null, label: provider };
+}
+
+function buildDownloadBadge(provider) {
+  const meta = getDownloadProviderMeta(provider);
+  const requiredEnv = meta.requiredEnv;
+  const optionalEnv = meta.optionalEnv;
+  if (requiredEnv) {
+    const hasKey = !!cachedEnv[requiredEnv];
+    return {
+      className: hasKey ? "ok" : "warn",
+      text: hasKey ? "API 已配置" : "缺少 API",
+      title: `需要 ${requiredEnv}`,
+      usable: hasKey,
+    };
+  }
+  if (optionalEnv) {
+    const hasKey = !!cachedEnv[optionalEnv];
+    return {
+      className: hasKey ? "ok" : "neutral",
+      text: hasKey ? "API 已配置" : "可选 API",
+      title: `可选 ${optionalEnv}`,
+      usable: true,
+    };
+  }
+  return {
+    className: "neutral",
+    text: "无需 API",
+    title: "无需 API",
+    usable: true,
+  };
+}
+
+function updatePriorityItemState(item) {
+  const checkbox = item.querySelector('input[type="checkbox"]');
+  if (!checkbox) return;
+  item.classList.toggle("is-disabled", !checkbox.checked);
+}
+
+function renderDownloadPriorityList(providers, configuredOrder) {
+  if (!downloadPriorityListEl) return;
+  const available = (providers || []).filter((name) => name && name !== "scihub");
+  const normalizedOrder = Array.isArray(configuredOrder)
+    ? configuredOrder.map((name) => name.toString().toLowerCase())
+    : [];
+  const activeOrder = normalizedOrder.filter((name) => available.includes(name));
+  const baseOrder = activeOrder.length > 0 ? activeOrder : [];
+  const remaining = available.filter((name) => !baseOrder.includes(name));
+  const order = baseOrder.concat(remaining);
+  const enabledSet =
+    activeOrder.length > 0 ? new Set(activeOrder) : new Set(order);
+
+  downloadPriorityListEl.innerHTML = "";
+  order.forEach((provider) => {
+    const badge = buildDownloadBadge(provider);
+    const item = document.createElement("div");
+    item.className = "priority-item";
+    item.dataset.provider = provider;
+
+    const name = document.createElement("div");
+    name.className = "priority-name";
+    name.textContent = provider;
+
+    const meta = document.createElement("div");
+    meta.className = "priority-meta";
+
+    const badgeEl = document.createElement("span");
+    badgeEl.className = `badge ${badge.className}`;
+    badgeEl.textContent = badge.text;
+    badgeEl.title = badge.title;
+    meta.appendChild(badgeEl);
+
+    const toggle = document.createElement("label");
+    toggle.className = "priority-toggle";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = enabledSet.has(provider);
+    checkbox.addEventListener("change", () => updatePriorityItemState(item));
+    toggle.appendChild(checkbox);
+    toggle.appendChild(document.createTextNode("启用"));
+    meta.appendChild(toggle);
+
+    const actions = document.createElement("div");
+    actions.className = "priority-actions";
+    const upBtn = document.createElement("button");
+    upBtn.className = "ghost";
+    upBtn.type = "button";
+    upBtn.textContent = "上移";
+    upBtn.addEventListener("click", () => {
+      const prev = item.previousElementSibling;
+      if (prev) {
+        downloadPriorityListEl.insertBefore(item, prev);
+      }
+    });
+    const downBtn = document.createElement("button");
+    downBtn.className = "ghost";
+    downBtn.type = "button";
+    downBtn.textContent = "下移";
+    downBtn.addEventListener("click", () => {
+      const next = item.nextElementSibling;
+      if (next) {
+        downloadPriorityListEl.insertBefore(next, item);
+      }
+    });
+    actions.appendChild(upBtn);
+    actions.appendChild(downBtn);
+
+    item.appendChild(name);
+    item.appendChild(meta);
+    item.appendChild(actions);
+    updatePriorityItemState(item);
+    downloadPriorityListEl.appendChild(item);
+  });
+}
+
+function refreshDownloadPriorityBadges() {
+  if (!downloadPriorityListEl) return;
+  const items = downloadPriorityListEl.querySelectorAll(".priority-item");
+  items.forEach((item) => {
+    const provider = item.dataset.provider || "";
+    const badge = buildDownloadBadge(provider);
+    const badgeEl = item.querySelector(".badge");
+    if (!badgeEl) return;
+    badgeEl.className = `badge ${badge.className}`;
+    badgeEl.textContent = badge.text;
+    badgeEl.title = badge.title;
+  });
+}
+
+function collectDownloadPriorityOrder() {
+  if (!downloadPriorityListEl) return [];
+  const items = downloadPriorityListEl.querySelectorAll(".priority-item");
+  const order = [];
+  items.forEach((item) => {
+    const checkbox = item.querySelector('input[type="checkbox"]');
+    if (!checkbox || !checkbox.checked) return;
+    const provider = item.dataset.provider;
+    if (provider) {
+      order.push(provider);
+    }
+  });
+  return order;
+}
+
+async function saveDownloadPriority(button) {
+  const overrides = parseOverrideJson();
+  if (overrides === null) {
+    return;
+  }
+  const order = collectDownloadPriorityOrder();
+  if (order.length > 0) {
+    overrides.LITERATURE_FETCHER_PROVIDER_ORDER = order;
+  } else {
+    delete overrides.LITERATURE_FETCHER_PROVIDER_ORDER;
+  }
+  if (button) button.disabled = true;
+  try {
+    await apiPost("/api/config", { overrides });
+    writeOverrideJson(overrides);
+    cachedConfig.LITERATURE_FETCHER_PROVIDER_ORDER = order;
+    appendLog("已保存下载优先级。");
+  } catch (err) {
+    appendLog(`优先级保存失败: ${err.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function populateProviders(selectEl, providers, extraOption) {
@@ -933,6 +1125,7 @@ async function init() {
   cachedEnv = state.env || {};
   cachedPaths = state.paths || {};
   llmProviderPresets = (state.providers && state.providers.llm_presets) || {};
+  downloadProviders = (state.providers && state.providers.download) || [];
 
   document.getElementById("projectRoot").textContent = state.paths.project_root || "--";
   document.getElementById("envPath").textContent = state.paths.env_file || "--";
@@ -993,11 +1186,15 @@ async function init() {
   populatePresetSelect(ocrPresetEl, ocrPresets);
   ocrPresetEl.value = "custom";
 
-  populateProviders(downloadProviderEl, state.providers.download || [], {
+  populateProviders(downloadProviderEl, downloadProviders, {
     value: "auto",
     label: "auto",
   });
   downloadProviderEl.value = "auto";
+  renderDownloadPriorityList(
+    downloadProviders,
+    cachedConfig.LITERATURE_FETCHER_PROVIDER_ORDER || []
+  );
   downloadCsvEl.value =
     (stageDefaults.download && stageDefaults.download.input_csv) ||
     cachedConfig.METADATA_CSV_PATH ||
@@ -1180,6 +1377,22 @@ document.querySelectorAll("[data-save]").forEach((btn) => {
   });
 });
 
+if (downloadPrioritySaveBtn) {
+  downloadPrioritySaveBtn.addEventListener("click", async () => {
+    await saveDownloadPriority(downloadPrioritySaveBtn);
+  });
+}
+
+if (downloadPriorityResetBtn) {
+  downloadPriorityResetBtn.addEventListener("click", () => {
+    renderDownloadPriorityList(
+      downloadProviders,
+      cachedConfig.LITERATURE_FETCHER_PROVIDER_ORDER || []
+    );
+    appendLog("已重置下载优先级。");
+  });
+}
+
 
 document.getElementById("addEnv").addEventListener("click", () => addEnvRow());
 
@@ -1195,6 +1408,7 @@ document.getElementById("saveEnv").addEventListener("click", async () => {
       }
     });
     removedEnvKeys.clear();
+    refreshDownloadPriorityBadges();
     appendLog("ENV 已保存。");
   } catch (err) {
     appendLog(`ENV 保存失败: ${err.message}`);

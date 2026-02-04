@@ -256,6 +256,19 @@
                 </div>
                 <label>下载 Provider</label>
                 <select id="downloadProvider"></select>
+                <div class="priority-panel">
+                  <div class="priority-head">
+                    <div>
+                      <label>下载优先级</label>
+                      <p class="hint">仅影响 auto/重试顺序；Sci-Hub 若启用则始终兜底。</p>
+                    </div>
+                    <div class="inline-actions">
+                      <button id="downloadPriorityReset" class="ghost">重置</button>
+                      <button id="downloadPrioritySave" class="ghost">保存优先级</button>
+                    </div>
+                  </div>
+                  <div id="downloadPriorityList" class="priority-list"></div>
+                </div>
                 <label>DOI 列表（可选，逗号/空格分隔）</label>
                 <textarea id="downloadDoi" rows="2"></textarea>
                 <div class="row">

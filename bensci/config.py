@@ -102,6 +102,7 @@ FETCHER_DEFAULT_USER_AGENT = "bensci-fetcher/1.0"  # 统一的 UA 字符串，�
 FETCHER_HTTP_TIMEOUT = 60  # 单次 HTTP 请求超时（秒）
 # 下载全文时的 provider 尝试顺序（不含 Sci-Hub）；按稳定性由高到低排列即可。
 LITERATURE_FETCHER_PROVIDER_ORDER = ["elsevier", "springer", "acs", "wiley", "rsc"]
+ACS_API_KEY_ENV = "ACS_API_KEY"  # ACS 可选 API Key 环境变量名
 
 # Springer API 相关配置；若使用其他 key/域名，请在本地覆盖
 SPRINGER_OPEN_ACCESS_API_BASE = "https://api.springernature.com/openaccess/jats"

@@ -197,6 +197,99 @@ h1 {
   min-width: 0;
 }
 
+.priority-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed rgba(91, 95, 106, 0.25);
+  background: rgba(248, 243, 235, 0.5);
+}
+
+.priority-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.priority-list {
+  display: grid;
+  gap: 8px;
+}
+
+.priority-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(222, 213, 199, 0.8);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.priority-item.is-disabled {
+  opacity: 0.6;
+}
+
+.priority-name {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+}
+
+.priority-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.priority-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.priority-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.priority-actions button {
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: "Space Grotesk", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.badge.ok {
+  background: rgba(15, 118, 110, 0.14);
+  color: #0f766e;
+}
+
+.badge.warn {
+  background: rgba(249, 115, 22, 0.16);
+  color: #c2410c;
+}
+
+.badge.neutral {
+  background: rgba(91, 95, 106, 0.12);
+  color: var(--muted);
+}
+
 .pipeline {
   border: 1px solid rgba(15, 118, 110, 0.22);
   box-shadow: 0 18px 50px rgba(15, 118, 110, 0.14);
