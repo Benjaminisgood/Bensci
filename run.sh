@@ -644,6 +644,9 @@ run_convert_task() {
     fi
   fi
 
+  # Ensure PaddleX performs connectivity checks so models can be auto-downloaded.
+  export PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=
+
   if "${cmd[@]}"; then
     echo "格式转化完成。"
   else
