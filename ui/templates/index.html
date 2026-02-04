@@ -480,8 +480,12 @@
                       <input id="llmKeyPrefix" type="text" />
                     </div>
                     <div>
-                      <label>Block Limit</label>
-                      <input id="llmBlockLimit" type="number" min="1" />
+                      <label>Block Limit（可空）</label>
+                      <input id="llmBlockLimit" type="number" min="1" placeholder="留空仅用字符上限" />
+                    </div>
+                    <div>
+                      <label>字符上限</label>
+                      <input id="llmCharLimit" type="number" min="1" placeholder="例如 8000" />
                     </div>
                   </div>
                   <div class="row">

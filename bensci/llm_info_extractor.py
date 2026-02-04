@@ -27,6 +27,20 @@ from .logging_utils import setup_file_logger
 # 默认配置 —— 可在 config.py 中覆盖对应常量
 # ---------------------------------------------------------------------------
 
+def _coerce_optional_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
 _DEFAULT_TEMPLATE = OrderedDict(
     [
         ("article_title", "文献标题"),
@@ -156,8 +170,13 @@ DEFAULT_OUTPUT_PATH = Path(
         BLOCKS_OUTPUT_DIR / "llm_extractions.csv",
     )
 )
-DEFAULT_BLOCK_LIMIT: int = int(
-    getattr(project_config, "LLM_EXTRACTION_BLOCK_LIMIT", 28)
+DEFAULT_BLOCK_LIMIT: Optional[int] = _coerce_optional_int(
+    getattr(project_config, "LLM_EXTRACTION_BLOCK_LIMIT", None),
+    None,
+)
+DEFAULT_CHAR_LIMIT: Optional[int] = _coerce_optional_int(
+    getattr(project_config, "LLM_EXTRACTION_CHAR_LIMIT", None),
+    None,
 )
 DEFAULT_TEMPERATURE: float = float(
     getattr(project_config, "LLM_EXTRACTION_TEMPERATURE", 0.1)
@@ -496,7 +515,8 @@ class LLMExtractionConfig:
         default_factory=lambda: OrderedDict(DEFAULT_OUTPUT_TEMPLATE)
     )
     task_prompt: str = DEFAULT_TASK_PROMPT
-    block_limit: int = DEFAULT_BLOCK_LIMIT
+    block_limit: Optional[int] = DEFAULT_BLOCK_LIMIT
+    char_limit: Optional[int] = DEFAULT_CHAR_LIMIT
     temperature: float = DEFAULT_TEMPERATURE
     provider: str = DEFAULT_PROVIDER or ""
     base_url_override: Optional[str] = DEFAULT_BASE_URL_OVERRIDE
@@ -515,7 +535,22 @@ class LLMExtractionConfig:
         input_path = Path(args.input).resolve()
         output_path = Path(args.output).resolve()
         model = args.model or DEFAULT_MODEL
-        block_limit = args.block_limit or DEFAULT_BLOCK_LIMIT
+        char_limit = (
+            args.char_limit
+            if getattr(args, "char_limit", None) is not None
+            else DEFAULT_CHAR_LIMIT
+        )
+        char_limit = _coerce_optional_int(char_limit, None)
+        if char_limit is not None and char_limit <= 0:
+            char_limit = None
+
+        if getattr(args, "block_limit", None) is None:
+            block_limit = DEFAULT_BLOCK_LIMIT if char_limit is None else None
+        else:
+            block_limit = args.block_limit
+        block_limit = _coerce_optional_int(block_limit, None)
+        if block_limit is not None and block_limit <= 0:
+            block_limit = None
         temperature = args.temperature if args.temperature is not None else DEFAULT_TEMPERATURE
         system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
         user_prompt_template = args.user_prompt_template or DEFAULT_USER_PROMPT_TEMPLATE
@@ -567,6 +602,7 @@ class LLMExtractionConfig:
             output_template=output_template,
             task_prompt=task_prompt,
             block_limit=block_limit,
+            char_limit=char_limit,
             temperature=temperature,
             provider=provider,
             base_url_override=base_url,
@@ -848,13 +884,22 @@ class LLMExtractionPipeline:
         blocks: Sequence[Dict[str, Any]],
         template_doc: str,
     ) -> str:
-        selected_blocks = select_relevant_blocks(
-            blocks,
-            limit=self.config.block_limit,
-            key_terms=self._key_terms,
-        )
+        if blocks:
+            limit = self.config.block_limit
+            if limit is None or limit <= 0:
+                limit = len(blocks)
+            selected_blocks = select_relevant_blocks(
+                blocks,
+                limit=limit,
+                key_terms=self._key_terms,
+            )
+        else:
+            selected_blocks = []
         metadata_text = render_semistructured_metadata(metadata)
-        blocks_text = render_semistructured_blocks(selected_blocks)
+        blocks_text = render_semistructured_blocks(
+            selected_blocks,
+            max_chars=self.config.char_limit,
+        )
         template = self.config.user_prompt_template
         format_args = {
             "metadata": metadata_text,
@@ -1138,8 +1183,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--block-limit",
         type=int,
-        default=DEFAULT_BLOCK_LIMIT,
-        help="传给 LLM 的片段数量上限",
+        default=None,
+        help="传给 LLM 的片段数量上限（可留空，仅使用字符上限）",
+    )
+    parser.add_argument(
+        "--char-limit",
+        type=int,
+        default=None,
+        help="传给 LLM 的片段文本字符上限（可选）",
     )
     parser.add_argument(
         "--temperature",

@@ -349,6 +349,8 @@ LLM_EXTRACTION_API_KEY_ENV = "CHAT_ANYWHERE_API_KEY"  # 存放 API Key 的环境
 
 LLM_EXTRACTION_API_KEY_HEADER = None        # 自定义 Header 名；None 表示使用 Authorization
 LLM_EXTRACTION_API_KEY_PREFIX = None        # Header 前缀；None 表示默认 Bearer
+LLM_EXTRACTION_BLOCK_LIMIT = None           # 抽取时最多使用的块数（None 表示不限制）
+LLM_EXTRACTION_CHAR_LIMIT = None            # 抽取时候选片段文本字符上限（None 表示不限制）
 LLM_EXTRACTION_TIMEOUT = 120  # LLM 请求整体超时时间（秒）
 LLM_EXTRACTION_TASK_PROMPT = ""  # 追加的任务说明（自然语言）
 

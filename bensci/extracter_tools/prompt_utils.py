@@ -96,11 +96,15 @@ def render_semistructured_blocks(
     blocks: Sequence[Mapping[str, Any]],
     *,
     snippet_length: int = 380,
+    max_chars: int | None = None,
 ) -> str:
     if not blocks:
         return "(无候选片段)"
 
     rendered: List[str] = []
+    total_chars = 0
+    if isinstance(max_chars, int) and max_chars <= 0:
+        max_chars = None
     for block in blocks:
         idx = block.get("idx", "?")
         type_ = block.get("type", "text")
@@ -109,6 +113,21 @@ def render_semistructured_blocks(
         keyword_line = f"关键词: {', '.join(keywords) if keywords else '无'}"
         content = str(block.get("content", "") or "")
         snippet = _compress_text(content, snippet_length)
-        rendered.append("\n".join([label, keyword_line, "内容: " + snippet]))
+        block_text = "\n".join([label, keyword_line, "内容: " + snippet])
+        if max_chars is not None:
+            separator = 2 if rendered else 0
+            projected = total_chars + separator + len(block_text)
+            if projected > max_chars:
+                remaining = max_chars - total_chars - separator
+                if remaining <= 0:
+                    break
+                truncated = block_text[:remaining].rstrip()
+                if truncated != block_text:
+                    truncated = truncated.rstrip() + "…"
+                rendered.append(truncated)
+                total_chars = max_chars
+                break
+            total_chars = projected
+        rendered.append(block_text)
 
     return "\n\n".join(rendered)

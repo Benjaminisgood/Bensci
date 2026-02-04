@@ -53,6 +53,7 @@ CONFIG_KEYS = [
     "LLM_EXTRACTION_API_KEY_PREFIX",
     "LLM_EXTRACTION_OUTPUT_TEMPLATE",
     "LLM_EXTRACTION_BLOCK_LIMIT",
+    "LLM_EXTRACTION_CHAR_LIMIT",
     "LLM_EXTRACTION_TEMPERATURE",
     "LLM_EXTRACTION_TIMEOUT",
     "LLM_EXTRACTION_TASK_PROMPT",
@@ -533,6 +534,7 @@ def _run_llm_stage(params: Dict[str, Any]) -> Dict[str, Any]:
     api_key_header = (params.get("api_key_header") or "").strip()
     api_key_prefix = params.get("api_key_prefix")
     block_limit = params.get("block_limit")
+    char_limit = params.get("char_limit")
     temperature = params.get("temperature")
     timeout = params.get("timeout")
     task = (params.get("task") or "").strip()
@@ -581,6 +583,8 @@ def _run_llm_stage(params: Dict[str, Any]) -> Dict[str, Any]:
         cmd += ["--api-key-prefix", str(api_key_prefix)]
     if str(block_limit).isdigit():
         cmd += ["--block-limit", str(block_limit)]
+    if str(char_limit).isdigit():
+        cmd += ["--char-limit", str(char_limit)]
     if temperature is not None and str(temperature).strip() != "":
         cmd += ["--temperature", str(temperature)]
     if str(timeout).isdigit():
