@@ -211,6 +211,11 @@ h1 {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.priority-head > * {
+  min-width: 0;
 }
 
 .priority-list {
@@ -220,13 +225,20 @@ h1 {
 
 .priority-item {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) auto auto;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  grid-template-areas:
+    "name actions"
+    "meta actions";
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid rgba(222, 213, 199, 0.8);
   background: rgba(255, 255, 255, 0.9);
+}
+
+.priority-item > * {
+  min-width: 0;
 }
 
 .priority-item.is-disabled {
@@ -234,16 +246,20 @@ h1 {
 }
 
 .priority-name {
+  grid-area: name;
   font-family: "Space Grotesk", sans-serif;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .priority-meta {
+  grid-area: meta;
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  min-width: 0;
 }
 
 .priority-toggle {
@@ -255,8 +271,11 @@ h1 {
 }
 
 .priority-actions {
+  grid-area: actions;
   display: inline-flex;
   gap: 6px;
+  flex-wrap: wrap;
+  justify-self: end;
 }
 
 .priority-actions button {
@@ -429,6 +448,11 @@ button.ghost {
   color: var(--muted);
   cursor: pointer;
   margin-top: 10px;
+}
+
+.inline-actions button.ghost,
+.priority-actions button.ghost {
+  margin-top: 0;
 }
 
 button.run-btn {
