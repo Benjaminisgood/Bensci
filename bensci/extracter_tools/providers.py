@@ -42,12 +42,12 @@ PROVIDER_PRESETS: Dict[str, ProviderSettings] = {
     ),
     "deepseek": ProviderSettings(
         provider="deepseek",
-        base_url="https://api.deepseek.com/v1",
+        base_url="https://api.deepseek.com",
         api_key_env="DEEPSEEK_API_KEY",
     ),
     "moonshot": ProviderSettings(
         provider="moonshot",
-        base_url="https://api.moonshot.cn/v1",
+        base_url="https://api.moonshot.ai/v1",
         api_key_env="MOONSHOT_API_KEY",
     ),
     "zhipu": ProviderSettings(
@@ -63,7 +63,7 @@ PROVIDER_PRESETS: Dict[str, ProviderSettings] = {
     ),
     "minimax": ProviderSettings(
         provider="minimax",
-        base_url="https://api.minimax.chat/v1",
+        base_url="https://api.minimax.io/v1",
         api_key_env="MINIMAX_API_KEY",
     ),
 }

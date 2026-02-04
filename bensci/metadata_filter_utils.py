@@ -42,7 +42,7 @@ load_dotenv(ENV_PATH)
 
 DEFAULT_PROVIDER = getattr(project_config, "METADATA_FILTER_PROVIDER", None) or "openai"
 DEFAULT_MODEL = getattr(project_config, "METADATA_FILTER_MODEL", None) or os.getenv(
-    "OPENAI_MODEL", "gpt-4o-mini"
+    "OPENAI_MODEL", "gpt-5-mini"
 )
 DEFAULT_BASE_URL = getattr(project_config, "METADATA_FILTER_BASE_URL", None)
 DEFAULT_CHAT_PATH = getattr(project_config, "METADATA_FILTER_CHAT_PATH", None)

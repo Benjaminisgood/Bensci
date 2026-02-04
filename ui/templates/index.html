@@ -111,7 +111,7 @@
                     </div>
                     <div>
                       <label>默认模型</label>
-                      <input id="llmQuickModel" type="text" placeholder="例如 gpt-4o / deepseek-chat" />
+                      <input id="llmQuickModel" type="text" placeholder="例如 gpt-5.1 / deepseek-chat" />
                     </div>
                     <div>
                       <label>API Key</label>
@@ -295,110 +295,112 @@
                     <button data-run="convert" class="run-btn">立即执行</button>
                   </div>
                 </div>
-                <div class="row">
-                  <div>
-                    <label>输入路径</label>
-                    <input id="convertInput" type="text" />
-                  </div>
-                  <div>
-                    <label>输出目录</label>
-                    <input id="convertOutput" type="text" />
-                  </div>
-                  <div>
-                    <label>输出格式</label>
-                    <select id="convertFormat">
-                      <option value="json">json</option>
-                      <option value="md">md</option>
-                      <option value="both">both</option>
-                    </select>
-                  </div>
-                </div>
-              </section>
-
-              <section class="panel config-section" data-config="convert">
-                <div class="section-head">
-                  <div>
-                    <h3>PDF OCR 高级设置</h3>
-                    <p class="section-desc">多引擎 OCR 与预处理选项。</p>
+                <div class="section-block">
+                  <div class="row">
+                    <div>
+                      <label>输入路径</label>
+                      <input id="convertInput" type="text" />
+                    </div>
+                    <div>
+                      <label>输出目录</label>
+                      <input id="convertOutput" type="text" />
+                    </div>
+                    <div>
+                      <label>输出格式</label>
+                      <select id="convertFormat">
+                        <option value="json">json</option>
+                        <option value="md">md</option>
+                        <option value="both">both</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
-                <div class="row">
-                  <div>
-                    <label>OCR 预设</label>
-                    <select id="ocrPreset"></select>
+                <div class="divider"></div>
+                <div class="section-block">
+                  <div class="section-subhead">
+                    <div>
+                      <h4>PDF OCR 高级设置</h4>
+                      <p class="section-desc">多引擎 OCR 与预处理选项。</p>
+                    </div>
                   </div>
-                  <div>
-                    <label>OCR 引擎</label>
-                    <select id="ocrEngine">
-                      <option value="auto">auto</option>
-                      <option value="paddle">paddle</option>
-                      <option value="easyocr">easyocr</option>
-                      <option value="rapidocr">rapidocr</option>
-                      <option value="tesseract">tesseract</option>
-                      <option value="pypdf2">pypdf2</option>
-                    </select>
+                  <div class="row">
+                    <div>
+                      <label>OCR 预设</label>
+                      <select id="ocrPreset"></select>
+                    </div>
+                    <div>
+                      <label>OCR 引擎</label>
+                      <select id="ocrEngine">
+                        <option value="auto">auto</option>
+                        <option value="paddle">paddle</option>
+                        <option value="easyocr">easyocr</option>
+                        <option value="rapidocr">rapidocr</option>
+                        <option value="tesseract">tesseract</option>
+                        <option value="pypdf2">pypdf2</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>OCR 语言</label>
+                      <input id="ocrLang" type="text" placeholder="eng / chi_sim / en / ch" />
+                    </div>
                   </div>
-                  <div>
-                    <label>OCR 语言</label>
-                    <input id="ocrLang" type="text" placeholder="eng / chi_sim / en / ch" />
+                  <div class="row">
+                    <div>
+                      <label>DPI</label>
+                      <input id="ocrDpi" type="number" min="100" />
+                    </div>
+                    <div>
+                      <label>预处理</label>
+                      <select id="ocrPreprocess">
+                        <option value="none">none</option>
+                        <option value="grayscale">grayscale</option>
+                        <option value="binarize">binarize</option>
+                        <option value="sharpen">sharpen</option>
+                      </select>
+                    </div>
                   </div>
+                  <label>Tesseract 额外参数</label>
+                  <input id="ocrTesseractConfig" type="text" placeholder="--psm 6" />
+                  <div class="row">
+                    <div>
+                      <label>EasyOCR 语言</label>
+                      <input id="ocrEasyocrLangs" type="text" placeholder="en,ch_sim" />
+                    </div>
+                    <div>
+                      <label>EasyOCR 使用 GPU</label>
+                      <select id="ocrEasyocrGpu">
+                        <option value="">默认</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div>
+                      <label>PaddleOCR 语言</label>
+                      <input id="ocrPaddleLang" type="text" placeholder="en / ch" />
+                    </div>
+                    <div>
+                      <label>PaddleOCR 方向分类</label>
+                      <select id="ocrPaddleAngle">
+                        <option value="">默认</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div>
+                      <label>PaddleOCR 使用 GPU</label>
+                      <select id="ocrPaddleGpu">
+                        <option value="">默认</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p class="hint">这些设置会随“格式转化统一”步骤一并传入 OCR。</p>
                 </div>
-                <div class="row">
-                  <div>
-                    <label>DPI</label>
-                    <input id="ocrDpi" type="number" min="100" />
-                  </div>
-                  <div>
-                    <label>预处理</label>
-                    <select id="ocrPreprocess">
-                      <option value="none">none</option>
-                      <option value="grayscale">grayscale</option>
-                      <option value="binarize">binarize</option>
-                      <option value="sharpen">sharpen</option>
-                    </select>
-                  </div>
-                </div>
-                <label>Tesseract 额外参数</label>
-                <input id="ocrTesseractConfig" type="text" placeholder="--psm 6" />
-                <div class="row">
-                  <div>
-                    <label>EasyOCR 语言</label>
-                    <input id="ocrEasyocrLangs" type="text" placeholder="en,ch_sim" />
-                  </div>
-                  <div>
-                    <label>EasyOCR 使用 GPU</label>
-                    <select id="ocrEasyocrGpu">
-                      <option value="">默认</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="row">
-                  <div>
-                    <label>PaddleOCR 语言</label>
-                    <input id="ocrPaddleLang" type="text" placeholder="en / ch" />
-                  </div>
-                  <div>
-                    <label>PaddleOCR 方向分类</label>
-                    <select id="ocrPaddleAngle">
-                      <option value="">默认</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="row">
-                  <div>
-                    <label>PaddleOCR 使用 GPU</label>
-                    <select id="ocrPaddleGpu">
-                      <option value="">默认</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </div>
-                </div>
-                <p class="hint">这些设置会随“格式转化统一”步骤一并传入 OCR。</p>
               </section>
 
               <section class="panel config-section" data-config="llm">

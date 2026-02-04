@@ -1006,7 +1006,7 @@ function collectUiSnapshot() {
       api_key_header: llmKeyHeaderEl.value.trim(),
       api_key_prefix: llmKeyPrefixEl.value.trim(),
       block_limit: llmBlockLimitEl.value.trim(),
-      char_limit: llmCharLimitEl.value.trim(),
+      char_limit: llmCharLimitEl ? llmCharLimitEl.value.trim() : "",
       temperature: llmTemperatureEl.value.trim(),
       timeout: llmTimeoutEl.value.trim(),
     },
@@ -1096,7 +1096,7 @@ async function runStage(stage) {
       api_key_header: llmKeyHeaderEl.value.trim(),
       api_key_prefix: llmKeyPrefixEl.value.trim(),
       block_limit: llmBlockLimitEl.value.trim(),
-      char_limit: llmCharLimitEl.value.trim(),
+      char_limit: llmCharLimitEl ? llmCharLimitEl.value.trim() : "",
       temperature: llmTemperatureEl.value.trim(),
       timeout: llmTimeoutEl.value.trim(),
     };
@@ -1255,7 +1255,9 @@ async function init() {
   llmKeyHeaderEl.value = cachedConfig.LLM_EXTRACTION_API_KEY_HEADER || "";
   llmKeyPrefixEl.value = cachedConfig.LLM_EXTRACTION_API_KEY_PREFIX || "";
   llmBlockLimitEl.value = cachedConfig.LLM_EXTRACTION_BLOCK_LIMIT || "";
-  llmCharLimitEl.value = cachedConfig.LLM_EXTRACTION_CHAR_LIMIT || "";
+  if (llmCharLimitEl) {
+    llmCharLimitEl.value = cachedConfig.LLM_EXTRACTION_CHAR_LIMIT || "";
+  }
   llmTemperatureEl.value = cachedConfig.LLM_EXTRACTION_TEMPERATURE || "";
   llmTimeoutEl.value = cachedConfig.LLM_EXTRACTION_TIMEOUT || "";
   llmInputEl.value =

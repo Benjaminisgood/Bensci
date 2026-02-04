@@ -184,7 +184,7 @@ LLM_EXTRACTION_OUTPUT_PATH = ASSETS4_DIR / "extracted_tap_kinetics_issues.csv"
 # ---------- LLM 摘要筛选配置 ----------
 # 支持多家 LLM，默认沿用 OpenAI 兼容接口
 METADATA_FILTER_PROVIDER = "openai"
-METADATA_FILTER_MODEL = "gpt-4o-mini"
+METADATA_FILTER_MODEL = "gpt-5-mini"
 METADATA_FILTER_BASE_URL = None
 METADATA_FILTER_CHAT_PATH = None
 METADATA_FILTER_API_KEY_ENV = None
@@ -343,7 +343,7 @@ KEYWORD_ALL_TERMS = [
 # 在 bensci/extracter_tools/providers.py 注册的 Provider key；可通过 CLI 参数覆盖。
 # （示例：openai、chatanywhere、deepseek、dashscope 等。）
 LLM_EXTRACTION_PROVIDER = "chatanywhere"
-LLM_EXTRACTION_MODEL = "gpt-4o"             # 默认模型名称；CLI 未传入时使用
+LLM_EXTRACTION_MODEL = "gpt-5.1"            # 默认模型名称；CLI 未传入时使用
 LLM_EXTRACTION_BASE_URL = "https://api.chatanywhere.tech/v1"  # 接口根地址
 LLM_EXTRACTION_CHAT_PATH = "/chat/completions"  # 聊天/补全端点
 LLM_EXTRACTION_API_KEY_ENV = "CHAT_ANYWHERE_API_KEY"  # 存放 API Key 的环境变量名
