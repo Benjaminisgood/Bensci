@@ -65,6 +65,8 @@ CONFIG_KEYS = [
     "METADATA_FILTER_API_KEY_ENV",
     "METADATA_FILTER_API_KEY_HEADER",
     "METADATA_FILTER_API_KEY_PREFIX",
+    "LLM_EXTRACTION_SYSTEM_PROMPT",
+    "LLM_EXTRACTION_USER_PROMPT_TEMPLATE",
     "METADATA_FILTER_TEMPERATURE",
     "METADATA_FILTER_TIMEOUT",
     "METADATA_FILTER_SLEEP_SECONDS",
@@ -93,6 +95,28 @@ def _to_jsonable(value: Any) -> Any:
     if isinstance(value, tuple):
         return list(value)
     return value
+
+def _resolve_config_value(cfg: Any, key: str) -> Any:
+    value = getattr(cfg, key, None)
+    if value is not None:
+        return value
+
+    prompts = getattr(cfg, "LLM_PROMPTS", None)
+    if not isinstance(prompts, dict):
+        return None
+
+    extraction = prompts.get("extraction")
+    if not isinstance(extraction, dict):
+        return None
+
+    if key == "LLM_EXTRACTION_SYSTEM_PROMPT":
+        return extraction.get("system_prompt")
+    if key == "LLM_EXTRACTION_USER_PROMPT_TEMPLATE":
+        return extraction.get("user_prompt_template")
+    if key == "LLM_EXTRACTION_OUTPUT_TEMPLATE":
+        return extraction.get("output_template")
+
+    return None
 
 
 def _reload_project_config():
@@ -691,7 +715,7 @@ def api_state():
     env_values = load_env_file(ENV_FILE)
     override_values = load_override_config(CONFIG_OVERRIDE_PATH)
 
-    config_payload = {key: _to_jsonable(getattr(cfg, key, None)) for key in CONFIG_KEYS}
+    config_payload = {key: _to_jsonable(_resolve_config_value(cfg, key)) for key in CONFIG_KEYS}
 
     payload = {
         "paths": {

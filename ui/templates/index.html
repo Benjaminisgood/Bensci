@@ -445,6 +445,14 @@
             <label>输出模板 JSON</label>
             <textarea id="llmOutputTemplate" rows="6" spellcheck="false"></textarea>
             <p class="hint">模板是一个 JSON 对象：{"field": "中文说明"}，决定最终表格列。启用自动生成后，会额外输出同目录的 .schema.json 供复用/修改。</p>
+
+          
+            <label>System Prompt（可选）</label>
+            <textarea id="llmSystemPrompt" rows="4" spellcheck="false"></textarea>
+            <label>User Prompt 模板（可选）</label>
+            <textarea id="llmUserPrompt" rows="6" spellcheck="false"></textarea>
+            <p class="hint">提示：可使用 {metadata}/{blocks}/{output_template}/{task} 占位符。</p>
+
                 <div class="row">
                   <div>
                     <label>输入路径</label>

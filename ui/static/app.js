@@ -223,6 +223,8 @@ const llmOutputEl = document.getElementById("llmOutput");
 const llmPresetEl = document.getElementById("llmPreset");
 const llmTaskEl = document.getElementById("llmTask");
 const llmOutputTemplateEl = document.getElementById("llmOutputTemplate");
+const llmSystemPromptEl = document.getElementById("llmSystemPrompt");
+const llmUserPromptEl = document.getElementById("llmUserPrompt");
 const llmAutoSchemaEl = document.getElementById("llmAutoSchema");
 const llmSchemaSampleSizeEl = document.getElementById("llmSchemaSampleSize");
 const llmSchemaMaxFieldsEl = document.getElementById("llmSchemaMaxFields");
@@ -993,6 +995,9 @@ function collectUiSnapshot() {
       preset: llmPresetEl.value,
       task: llmTaskEl.value.trim(),
       output_template: llmOutputTemplateEl.value.trim(),
+      system_prompt: llmSystemPromptEl ? llmSystemPromptEl.value.trim() : "",
+      user_prompt_template: llmUserPromptEl ? llmUserPromptEl.value.trim() : "",
+
       auto_schema_mode: llmAutoSchemaEl ? llmAutoSchemaEl.value : "auto",
       schema_sample_size: llmSchemaSampleSizeEl ? llmSchemaSampleSizeEl.value.trim() : "",
       schema_max_fields: llmSchemaMaxFieldsEl ? llmSchemaMaxFieldsEl.value.trim() : "",
@@ -1083,6 +1088,9 @@ async function runStage(stage) {
     payload = {
       input_path: llmInputEl.value.trim(),
       output_path: llmOutputEl.value.trim(),
+      system_prompt: llmSystemPromptEl ? llmSystemPromptEl.value.trim() : "",
+      user_prompt_template: llmUserPromptEl ? llmUserPromptEl.value.trim() : "",
+
       task: rawTask,
       output_template: rawTemplate,
       auto_schema: autoSchema,
@@ -1269,6 +1277,13 @@ async function init() {
     cachedConfig.LLM_EXTRACTION_OUTPUT_PATH ||
     "";
   llmTaskEl.value = cachedConfig.LLM_EXTRACTION_TASK_PROMPT || "";
+  if (llmSystemPromptEl) {
+    llmSystemPromptEl.value = cachedConfig.LLM_EXTRACTION_SYSTEM_PROMPT || "";
+  }
+  if (llmUserPromptEl) {
+    llmUserPromptEl.value = cachedConfig.LLM_EXTRACTION_USER_PROMPT_TEMPLATE || "";
+  }
+
   if (llmAutoSchemaEl) {
     llmAutoSchemaEl.value = "auto";
   }

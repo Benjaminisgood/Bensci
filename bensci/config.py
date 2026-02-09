@@ -23,9 +23,9 @@ PIPELINE_LOG_PATH = LOGS_DIR / "pipeline.log"  # 全流程统一日志文件
 # 默认 Scopus 检索语句；必要时可复制到 CLI 参数中微调。
 SCOPUS_DEFAULT_QUERY = (
     "TITLE-ABS-KEY ( "
-    "catalys* AND (kinetic* OR microkinetic OR \"elementary step\" OR "
-    "\"rate-determining\" OR mechanism) AND "
-    "(CO OR CO2 OR CH4 OR H2 OR NH3 OR N2 OR \"small molecule\" OR \"C1\") "
+    "(zirconia OR \"zirconium oxide\" OR ZrO2 OR \"ZrO\\u2082\" OR \"ZrO2-based\") AND "
+    "(propane AND (dehydrogenation OR \"direct dehydrogenation\" OR PDH)) AND "
+    "(propylene OR propene) "
     ")"
 )
 
@@ -37,11 +37,11 @@ METADATA_DEFAULT_QUERY = (
 )
 
 # 聚合器写出 CSV 之前的上限；调试阶段可以暂时调成 50/100 以减少调用和写盘量。
-METADATA_MAX_RESULTS = 120
+METADATA_MAX_RESULTS = 1000
 
 # 可为每个 Provider 定义独立的抓取上限（未配置则沿用 METADATA_MAX_RESULTS）。
 # 例如：{"elsevier": 80, "springer": 60}
-METADATA_PROVIDER_MAX_RESULTS = {"elsevier": 20, "springer": 20, "crossref": 20,"openalex": 20, "arxiv": 20, "pubmed": 20}
+METADATA_PROVIDER_MAX_RESULTS = {"elsevier": 1000, "springer": 1000, "crossref": 1000,"openalex": 1000, "arxiv": 1000, "pubmed": 1000}
 
 # 每个 provider 可指定单独的查询语句（例如关键词语法不同），未定义则回退到 METADATA_DEFAULT_QUERY。
 METADATA_PROVIDER_QUERIES = {
@@ -84,7 +84,7 @@ METADATA_CSV_COLUMNS = [
 
 # Elsevier/Scopus 请求分页、节流配置；缩小 MAX_RESULTS 可减少接口调用做冒烟测试。
 SCOPUS_PAGE_SIZE = 20  # 单次请求的记录数
-SCOPUS_MAX_RESULTS = 200  # 单轮扫描的最大返回量
+SCOPUS_MAX_RESULTS = 1000  # 单轮扫描的最大返回量
 SCOPUS_REQUEST_SLEEP_SECONDS = 0  # 请求间隔（秒）
 ABSTRACT_SLEEP_SECONDS = 1  # 抓取摘要时的额外延时
 SCOPUS_ALLOWED_PUBLISHER_KEYWORDS = ["elsevier", "science direct", "sciencedirect"]  # 允许的出版商关键词
@@ -117,9 +117,9 @@ WILEY_FETCH_URL_TEMPLATE = "https://doi.org/{doi}"
 RSC_FETCH_URL_TEMPLATE = "https://doi.org/{doi}"
 # Sci-Hub 兜底镜像；按顺序逐个尝试，可根据可达性增删。
 SCI_HUB_BASE_URLS = [
-    "https://sci-hub.se",
     "https://sci-hub.ru",
     "https://sci-hub.st",
+    "https://sci-hub.sg",
 ]
 
 # 可选：显式指定 metadata_fetcher 的调用顺序；留空时遍历全部可用 provider。
@@ -133,18 +133,18 @@ METADATA_PROVIDER_SLEEP_SECONDS = 0.0
 # 以下参数用于约束各外部 Provider 的分页、条数与节流策略；必要时单独调小做冒烟测试。
 CROSSREF_REQUEST_SLEEP_SECONDS = 0.2
 CROSSREF_ROWS = 50
-CROSSREF_MAX_RESULTS = 200
+CROSSREF_MAX_RESULTS = 2000
 OPENALEX_PER_PAGE = 50
-OPENALEX_MAX_RESULTS = 200
+OPENALEX_MAX_RESULTS = 2000
 OPENALEX_REQUEST_SLEEP_SECONDS = 0.2
 ARXIV_PAGE_SIZE = 50
-ARXIV_MAX_RESULTS = 200
+ARXIV_MAX_RESULTS = 2000
 ARXIV_REQUEST_SLEEP_SECONDS = 0.2
 PUBMED_BATCH_SIZE = 100
-PUBMED_MAX_RESULTS = 200
+PUBMED_MAX_RESULTS = 2000
 PUBMED_REQUEST_SLEEP_SECONDS = 0.34
 SPRINGER_META_PAGE_SIZE = 50
-SPRINGER_META_MAX_RESULTS = 200
+SPRINGER_META_MAX_RESULTS = 2000
 SPRINGER_META_REQUEST_SLEEP_SECONDS = 0.2
 
 # ---------- 文献解析配置 ----------
@@ -359,70 +359,128 @@ LLM_EXTRACTION_TASK_PROMPT = ""  # 追加的任务说明（自然语言）
 LLM_PROMPTS = {
     "extraction": {
         "system_prompt": (
-            "你是一名严谨的催化动力学信息抽取助手，专注于能源小分子反应。"
-            "请识别文献中指出的未解决基元反应动力学问题，并判断是否适合用 "
-            "TAP（Temporal Analysis of Products）来研究。"
-            "输出必须严格遵循 JSON 结构，字段顺序应符合给定模板。"
-            "任何缺失信息请标记为 \"未提及\"，切勿编造数据。"
+            "你是一名严谨的催化（丙烷直接脱氢 PDH）信息抽取助手，重点关注氧化锆（ZrO2）相关催化剂。"
+            "你的任务是从给定的文献元数据与节选片段中，抽取可核查的结构化信息："
+            "（1）催化机理：反应路径与失活路径；（2）催化剂制备方法；（3）活性位归属；"
+            "（4）动力学过程解释（RDS、表观活化能、速率表达、微观机理等）；"
+            "（5）TAP（Temporal Analysis of Products）可行性与可执行的实验 idea；"
+            "（6）表征结果（XRD/BET/显微图像等的“结论性描述”）；"
+            "（7）仍未解决的问题；（8）英文摘要原文与中文翻译；"
+            "（9）反应性能与条件（转化率/选择性/产率/STY/丙烯生成速率、温度、空速、进料组成等）；"
+            "（10）期刊影响因子、通讯作者与机构介绍（仅限元数据/片段中明确给出的内容）。"
+            "输出必须严格遵循 JSON 结构与字段顺序。"
+            "任何缺失信息一律写 \"未提及\"，切勿编造、推测、补写影响因子或机构介绍。"
+            "引用证据时，evidence_snippets 必须是原文逐句摘录（可多句），便于人工复核。"
         ),
         "user_prompt_template": (
-            "请阅读以下文献元数据与节选片段，提取与能源小分子催化动力学相关的"
-            "结构化信息，字段说明如下：\n{output_template}\n\n"
-            "请输出 JSON 数组，每个元素对应一条记录。\n"
+            "请阅读以下文献元数据与节选片段，抽取与“ZrO2/氧化锆 催化 丙烷直接脱氢制丙烯（PDH）”相关的结构化信息。"
+            "字段说明如下：\n{output_template}\n\n"
+            "请输出 JSON 数组，每个元素对应一篇文献（或同一文献中一个清晰的催化体系/催化剂版本）。\n\n"
             "元数据：\n{metadata}\n\n"
-            "候选片段 (按重要性排序)：\n{blocks}\n"
+            "候选片段（按重要性排序，带 block 编号）：\n{blocks}\n"
         ),
         "output_template": OrderedDict(
             [
+                # --- 基本信息 ---
                 ("article_title", "文献标题"),
                 ("doi", "文献 DOI"),
-                (
-                    "reaction_system",
-                    "具体反应或反应体系（如 CO 氧化、CO2 加氢、甲烷活化等）",
-                ),
-                ("reactants", "反应物（列出关键小分子或中间体）"),
-                ("products", "产物（列出主要产物）"),
-                ("catalyst", "催化剂组成/材料"),
-                ("catalyst_form", "催化剂形态/载体/结构（如纳米颗粒、单原子、负载体）"),
-                ("active_site_or_mechanism", "活性位或机理要点（如未明确可写未提及）"),
-                ("conditions", "重要条件（温度、压力、气氛、进料比例等）"),
-                (
-                    "unresolved_elementary_kinetics_issue",
-                    "文献明确指出的未解决基元反应动力学问题或机理空缺",
-                ),
-                (
-                    "tap_relevance",
-                    "为什么适合用 TAP 研究（例如可分离吸附/反应步骤）",
-                ),
-                (
-                    "suggested_tap_experiments",
-                    "可执行的 TAP 实验设计要点（脉冲物种、同位素、温度窗口等）",
-                ),
-                (
-                    "evidence_snippet",
-                    "直接摘自原文的支持性语句，保留原句便于人工审核",
-                ),
-                (
-                    "source_blocks",
-                    "原 JSON 中的块编号列表，用于快速定位上下文",
-                ),
-                (
-                    "confidence_score",
-                    "0-1 之间的小数，表示模型对该行数据可靠性的自评",
-                ),
-                (
-                    "verification_notes",
-                    "人工复核建议或额外线索（如需查阅的关键词/参考文献）",
-                ),
+                ("year", "发表年份（未提及则填未提及）"),
+                ("journal", "期刊名称"),
+                ("document_type", "文献类型（article/review等，未提及则填未提及）"),
+
+                # --- 摘要（你要求的“英文原文 + 中文翻译”）---
+                ("abstract_en", "英文摘要原文（必须原文；若未提供则未提及）"),
+                ("abstract_zh", "中文摘要翻译（基于 abstract_en 翻译；若 abstract_en 未提及则此项也写未提及）"),
+
+                # --- 反应体系与条件（尽量结构化）---
+                ("reaction_name", "反应名称（如 propane dehydrogenation, PDH）"),
+                ("reaction_system", "反应体系描述（丙烷→丙烯；是否含H2、惰性气等）"),
+                ("reactants", "反应物/进料组分（逐项列出，如 C3H8, H2, N2, Ar 等）"),
+                ("products", "主要产物与副产物（丙烯/氢气/裂解产物/积碳相关等）"),
+                ("temperature_C", "温度范围（°C，若多条件可写列表或区间文本）"),
+                ("pressure", "压力（如 1 atm / bar；未提及则未提及）"),
+                ("space_velocity", "空速（WHSV/GHSV/接触时间等，带单位）"),
+                ("feed_composition", "进料配比/浓度（如 C3H8% 或 C3H8:H2:N2）"),
+                ("reactor_type", "反应器类型（固定床/微反/流动等；未提及则未提及）"),
+                ("time_on_stream", "TOS/运行时长与稳定性测试时长（未提及则未提及）"),
+
+                # --- 催化剂信息：材料、形态、制备 ---
+                ("catalyst", "催化剂组成/材料（强调 ZrO2；掺杂/负载金属也要写出）"),
+                ("catalyst_form", "形态/载体/结构（纳米/多晶/单斜-四方相/负载体等）"),
+                ("preparation_method", "制备方法（溶胶凝胶/沉淀/浸渍/水热/焙烧流程等）"),
+                ("pretreatment_activation", "预处理/活化条件（还原/氧化/焙烧/气氛等）"),
+
+                # --- 表征结果（写“结论性信息”，不要编数据）---
+                ("characterization_xrd", "XRD 关键信息（相结构、晶相变化、结晶度趋势等）"),
+                ("characterization_bet", "BET/孔结构信息（比表面积趋势、孔径分布要点等）"),
+                ("characterization_microscopy", "显微图像（SEM/TEM/HAADF等）结论要点"),
+                ("characterization_surface_chemistry", "表面化学（XPS/TPD/TPR/DRIFTS等）要点"),
+                ("physicochemical_properties_summary", "催化剂物理化学性质总结（从表征归纳，不要编数值）"),
+
+                # --- 活性位与机理（反应 + 失活）---
+                ("active_site_assignment", "活性位归属（如 Zr4+-O2- 对/氧空位/酸碱位/界面位等）"),
+                ("reaction_mechanism", "催化反应机理要点（逐条写明关键基元步骤或路径）"),
+                ("deactivation_mechanism", "失活机理（积碳/烧结/相变/毒化等）"),
+                ("regeneration", "再生策略与效果（若文中提及）"),
+
+                # --- 动力学解释 ---
+                ("kinetic_model_or_rate_expression", "动力学模型/速率表达式/反应级数（若有）"),
+                ("rate_determining_step", "速控步（RDS）或关键限制环节（若文中明确）"),
+                ("apparent_activation_energy", "表观活化能 Ea（若文中明确给出，含单位）"),
+                ("microkinetic_discussion", "微观动力学/DFT-微观模型讨论要点（若有）"),
+                ("kinetic_interpretation_summary", "作者对动力学过程的解释总结（用原文可核查信息组织）"),
+
+                # --- 反应性能（你关心的转化率/选择性/产率/速率等）---
+                ("performance_conversion", "转化率（含条件/范围；未提及则未提及）"),
+                ("performance_selectivity_propylene", "丙烯选择性（含条件/范围）"),
+                ("performance_yield_propylene", "丙烯产率（含条件/范围）"),
+                ("performance_sty_or_rate", "STY/TOF/丙烯生成速率/单位质量速率（含单位与条件）"),
+                ("performance_stability", "稳定性（随时间变化趋势、失活速率等）"),
+                ("performance_comparison_baseline", "与对照催化剂对比结论（若有）"),
+
+                # --- TAP 相关（潜在 idea + 具体可做的实验设计）---
+                ("tap_relevance", "为什么适合用 TAP（可分离吸附/表面反应/扩散/瞬态中间体等）"),
+                ("suggested_tap_ideas", "TAP 潜在研究 idea（针对机理/失活/活性位）"),
+                ("suggested_tap_experiments", "可执行的 TAP 实验设计（脉冲物种、同位素、温度窗口、序列脉冲等）"),
+                ("tap_expected_observables", "TAP 预期可观测量与判据（时域信号、滞后、产物分布特征等）"),
+
+                # --- 未解决问题 ---
+                ("unresolved_issues", "文献明确指出/可归纳的尚未解决问题（必须有证据支撑；否则未提及）"),
+                ("future_work_clues", "作者提出的未来工作线索（若有）"),
+
+                # --- 影响因子、作者与机构（只许从提供文本中取）---
+                ("journal_impact_factor", "期刊影响因子（只在元数据/片段明确给出时填写；否则未提及）"),
+                ("corresponding_authors", "通讯作者（姓名列表；未提及则未提及）"),
+                ("affiliations", "作者机构/单位（未提及则未提及）"),
+                ("institution_profile", "相关机构组织介绍（研究领域/重点；仅限原文或元数据明确描述）"),
+
+                # --- 证据与定位 ---
+                ("evidence_snippets", "支持性原文摘录（数组；每条尽量完整句子）"),
+                ("source_blocks", "证据对应的 block 编号列表（数组，如 [3,7,9]）"),
+                ("confidence_score", "0-1 小数：对本条记录整体可靠性的自评（信息越多且证据越直接越高）"),
+                ("verification_notes", "人工复核建议（建议回看哪些关键词/图表/补抓哪些段落）"),
             ]
         ),
     },
-    "metadata_filter": {
-        "system_prompt": METADATA_FILTER_SYSTEM_PROMPT,
-        "user_prompt_template": METADATA_FILTER_USER_PROMPT_TEMPLATE,
+
+    # === 可选：元数据层过滤器（先筛出“ZrO2 + PDH + propylene”高度相关）===
+    "metadata_filter_zro2_pdh": {
+        "system_prompt": (
+            "你是文献元数据筛选助手。你的目标是从给定元数据中筛选出："
+            "（A）明确涉及 ZrO2/氧化锆（含掺杂/复合/负载形式）；"
+            "（B）反应为丙烷直接脱氢（PDH）并以丙烯为主要目标产物；"
+            "请只依据元数据字段（标题、摘要、关键词等）判断。"
+            "输出 JSON，包含 keep(boolean) 与 reasons(array)。不允许编造。"
+        ),
+        "user_prompt_template": (
+            "请基于以下元数据判断是否保留用于后续抽取：\n{metadata}\n\n"
+            "输出 JSON：{"
+            "\"keep\": true/false, "
+            "\"reasons\": [\"...\", \"...\"]"
+            "}"
+        ),
     },
 }
-
 # ---------- 可选：覆盖配置（JSON 文件） ----------
 # 允许通过 config.override.json 或环境变量 BENSCI_CONFIG_PATH 提供覆盖值，
 # 以便在不修改源码的情况下定制项目配置。
